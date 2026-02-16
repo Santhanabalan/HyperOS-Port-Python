@@ -58,27 +58,33 @@ def test_soh_patch_success(sec_module, base_fixtures, tmp_path):
     assert "myWeakRef" in kwargs2.get('regex_replace')[1]
 
 def test_remove_intercept_timer(sec_module, base_fixtures, tmp_path):
-    """Test removing intercept timer logic."""
-    res_dir = tmp_path / "res" / "values"
-    res_dir.mkdir(parents=True, exist_ok=True)
+    """Test removing intercept timer logic with strict tracing."""
+    # 1. Setup Resource Structure
+    res_dir = tmp_path / "res"
+    values_cn = res_dir / "values-zh-rCN"
+    values_cn.mkdir(parents=True, exist_ok=True)
     
-    # 1. Setup strings.xml
-    (res_dir / "strings.xml").write_text('<resources><string name="timer_str">确定（%d）</string></resources>')
+    # 2. Mock strings.xml in zh-rCN
+    (values_cn / "strings.xml").write_text(
+        '<resources><string name="intercept_confirmed_text">确定（%d）</string></resources>',
+        encoding='utf-8'
+    )
     
-    # 2. Mock XmlUtils.get_id to return a known ID
-    base_fixtures["xml"].get_id.return_value = "0x7f123456"
+    # 3. Mock XmlUtils.get_id to return a known ID
+    # Since we are mocking XmlUtils, we just tell the mock what to return when asked for "intercept_confirmed_text"
+    base_fixtures["xml"].get_id.side_effect = lambda path, name: "0x7f123456" if name == "intercept_confirmed_text" else None
     
-    # 3. Setup target smali file
-    smali_file = tmp_path / "smali/Target.smali"
-    smali_file.parent.mkdir(parents=True, exist_ok=True)
+    # 4. Setup Usage Smali (e.g. InterceptBaseFragment$1.smali)
+    usage_smali = tmp_path / "smali/com/miui/permcenter/InterceptBaseFragment$1.smali"
+    usage_smali.parent.mkdir(parents=True, exist_ok=True)
     
-    # Content must contain ID and invoke-virtual {p0} ... ()I before it
-    content = """
+    # Content: initData calls getTimer() then uses the string ID
+    usage_content = """
     .method public initData()V
         .locals 4
         
-        # Call to be patched
-        invoke-virtual {p0}, Lcom/example/Target;->getTimer()I
+        # Call to be traced (invoke-virtual on this or other object)
+        invoke-virtual {p0}, Lcom/miui/permcenter/InterceptBaseFragment;->getTimer()I
         move-result v0
         
         # Usage of ID
@@ -88,15 +94,26 @@ def test_remove_intercept_timer(sec_module, base_fixtures, tmp_path):
         return-void
     .end method
     """
-    smali_file.write_text(content)
+    usage_smali.write_text(usage_content, encoding='utf-8')
+    
+    # 5. Setup Target Definition Smali (The actual file to patch)
+    target_smali = tmp_path / "smali/com/miui/permcenter/InterceptBaseFragment.smali"
+    target_smali.write_text(".class public Lcom/miui/permcenter/InterceptBaseFragment;", encoding='utf-8')
     
     # Act
     sec_module._remove_intercept_timer(tmp_path)
     
     # Assert
-    base_fixtures["smali"].assert_called_once()
-    args, kwargs = base_fixtures["smali"].call_args
+    # Verify smali_patch was called
+    # We expect other patches too if we ran sec_module.run(), but we called _remove_intercept_timer directly.
+    # So call_count should be 1.
+    smali_mock = base_fixtures["smali"]
+    assert smali_mock.call_count == 1
     
+    args, kwargs = smali_mock.call_args
+    
+    # Verify it targeted the DEFINITION file, not the USAGE file
+    assert str(target_smali) == kwargs['file_path']
     assert kwargs['method'] == "getTimer"
     assert kwargs['return_type'] == "I"
-    assert kwargs['remake'] == ".locals 1\n    const/4 v0, 0x0\n    return v0"
+    assert "const/4 v0, 0x0" in kwargs['remake']

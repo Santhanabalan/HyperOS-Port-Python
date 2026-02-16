@@ -316,20 +316,42 @@ class SecurityCenterModule(BaseModule):
         self.logger.info("Removing Intercept Timer...")
         res_dir = self.xml.get_res_dir(work_dir)
         
-        # 1. Find Resource ID ("确定（%d）")
-        # Multi-step search: first find Name in strings.xml, then ID in public.xml
-        # Simplified: iterate all strings.xml to find name with value="确定（%d）"
+        # 1. Find Resource ID (Strict Mode: zh-rCN priority)
+        # Shell: find "$dir" -type d -path "*/values-zh-rCN" | head -n 1
+        target_values_dir = None
+        for d in res_dir.iterdir():
+            if d.name == "values-zh-rCN" or d.name == "values-zh-rCN-v26":
+                 target_values_dir = d
+                 break
+        
+        if not target_values_dir:
+            self.logger.info("values-zh-rCN not found, falling back to all values directories.")
+            # Fallback to searching all (but shell script relies on this specific text)
+            search_dirs = [d for d in res_dir.iterdir() if d.name.startswith("values")]
+        else:
+            search_dirs = [target_values_dir]
+
         str_name = None
-        for f in res_dir.rglob("strings.xml"):
-            content = f.read_text(encoding='utf-8', errors='ignore')
+        string_keyword = "确定（%d）"
+        
+        for d in search_dirs:
+            strings_xml = d / "strings.xml"
+            if not strings_xml.exists(): continue
+            
+            content = strings_xml.read_text(encoding='utf-8', errors='ignore')
             # Match <string name="xxx">确定（%d）</string>
-            m = re.search(r'<string name="([^"]+)">确定（%d）</string>', content)
-            if m:
-                str_name = m.group(1)
-                break
+            # Handle possible attributes like msgid
+            if string_keyword in content:
+                # Regex to capture name. 
+                # <string name="intercept_confirmed_text">确定（%d）</string>
+                m = re.search(r'<string[^>]+name="([^"]+)"[^>]*>\s*' + re.escape(string_keyword) + r'\s*</string>', content)
+                if m:
+                    str_name = m.group(1)
+                    self.logger.info(f"Found string resource: {str_name} in {d.name}")
+                    break
         
         if not str_name:
-            self.logger.warning("Resource string '确定（%d）' not found.")
+            self.logger.warning(f"Resource string '{string_keyword}' not found.")
             return
 
         str_id = self.xml.get_id(res_dir, str_name)
@@ -337,47 +359,89 @@ class SecurityCenterModule(BaseModule):
             self.logger.warning(f"ID for {str_name} not found.")
             return
         
-        self.logger.info(f"Target ID: {str_id} ({str_name})")
+        self.logger.info(f"Resolved Dynamic ID: {str_id}")
 
-        # 2. Find Smali file using this ID
-        # Shell: grep -l -r ID | grep initData
-        target_smali = None
+        # 2. Find Smali file using this ID in initData
+        # Shell: grep -l -r "$res_id" "$dir" | xargs grep -l "initData"
+        usage_file = None
         for f in work_dir.rglob("*.smali"):
             try:
-                c = f.read_text(encoding='utf-8', errors='ignore')
-                if str_id in c and "initData" in c:
-                    target_smali = f
+                content = f.read_text(encoding='utf-8', errors='ignore')
+                if str_id in content and "initData" in content:
+                    usage_file = f
                     break
             except: pass
         
-        if not target_smali:
-            self.logger.warning("Timer method not found in smali.")
+        if not usage_file:
+            self.logger.warning(f"Smali usage of {str_id} in initData not found.")
             return
 
-        # 3. Locate specific method (returns Int)
-        # Shell Logic: Find ID line -> search upwards for invoke-virtual ... ()I
-        content = target_smali.read_text(encoding='utf-8')
+        # 3. Trace Method: Find invoke-virtual {p0} ... ()I before ID usage
+        content = usage_file.read_text(encoding='utf-8', errors='ignore')
         
-        # Implementation of grep logic in Python:
-        # 1. Find initData method body
+        # Extract initData body
         init_match = re.search(r"\.method.*initData.*?\.end method", content, re.DOTALL)
-        if init_match:
-            init_body = init_match.group(0)
-            # 2. Find ID in initData
-            if str_id in init_body:
-                # 3. Find invoke-virtual {p0} ... ()I before ID
-                # Python re cannot lookbehind variable length, so split
-                pre_id_code = init_body.split(str_id)[0]
-                invokes = re.findall(r"invoke-virtual \{p0\}, (L.*?;->(.*)\(\)I)", pre_id_code)
-                if invokes:
-                    # Take the last one
-                    full_sig, method_name = invokes[-1]
-                    self.logger.info(f"Target Timer Method: {method_name}")
-                    
-                    # 4. Patch the method
-                    self.smali_patch(work_dir,
-                        file_path=str(target_smali),
-                        method=method_name,
-                        return_type="I",
-                        remake=".locals 1\n    const/4 v0, 0x0\n    return v0"
-                    )
+        if not init_match:
+            self.logger.warning("initData method body not found.")
+            return
+
+        init_body = init_match.group(0)
+        
+        # Split body by ID usage to find code before it
+        parts = init_body.split(str_id)
+        if len(parts) < 2: 
+            self.logger.warning("ID not found in initData body extraction.")
+            return
+            
+        code_before = parts[0]
+        
+        # Find last occurrence of invoke-virtual {p0} ... ()I
+        # Regex: invoke-virtual {p0}, Lpackage/Class;->Method()I
+        invokes = re.findall(r"invoke-virtual \{p0\}, (L(.*?);->(.*?)\(\)I)", code_before)
+        
+        if not invokes:
+            self.logger.warning("Target timer method invocation not found.")
+            return
+
+        # Take the last one
+        full_sig, class_desc, method_name = invokes[-1]
+        self.logger.info(f"Target Class: {class_desc}")
+        self.logger.info(f"Target Method: {method_name}")
+
+        # 4. Find the file defining this class
+        # Class desc: com/miui/permcenter/InterceptBaseFragment
+        class_path = class_desc.replace('.', '/')  # Should be unnecessary if extracted from L...;
+        
+        # Shell: find "$dir" -type f -path "*/${class_path}.smali"
+        # We need to handle potential 'smali_classes2' etc.
+        # So we look for a file ending with class_path + ".smali"
+        
+        target_file_name = f"{class_path}.smali"
+        target_file = None
+        
+        # Search for exact path match suffix
+        for f in work_dir.rglob("*.smali"):
+            if str(f).endswith(target_file_name):
+                target_file = f
+                break
+        
+        # Fallback: search by filename only (as per shell script)
+        if not target_file:
+             simple_name = Path(target_file_name).name
+             for f in work_dir.rglob(simple_name):
+                 target_file = f
+                 break
+                 
+        if not target_file:
+            self.logger.warning(f"Smali file for class {class_desc} not found.")
+            return
+            
+        self.logger.info(f"Target File: {target_file}")
+
+        # 5. Patch the method
+        self.smali_patch(work_dir,
+            file_path=str(target_file),
+            method=method_name,
+            return_type="I",
+            remake=".locals 1\n    const/4 v0, 0x0\n    return v0"
+        )
