@@ -279,12 +279,7 @@ class PropertyModifier:
         # 3. If not found, append to product/etc/build.prop
         if not found_in_port:
             product_prop = self.ctx.target_dir / "product/etc/build.prop"
-            if product_prop.exists():
-                with open(product_prop, "a", encoding='utf-8') as f:
-                    f.write(f"\nro.sf.lcd_density={base_density}\n")
-                    self.logger.info(f"Appended ro.sf.lcd_density={base_density} to {product_prop.relative_to(self.ctx.target_dir)}")
-            else:
-                self.logger.warning(f"Could not find product/etc/build.prop to append density.")
+            self._update_or_append_prop(product_prop, "ro.sf.lcd_density", base_density)
 
     def _apply_specific_fixes(self):
         """Device-specific fixes (Millet, Blur, Cgroup, etc.)"""
