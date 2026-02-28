@@ -8,7 +8,8 @@
             "ro.product.spoofed.name": "mondrian",
             "ro.spoofed.device": "mondrian",
             "persist.prophook.com.xiaomi.joyose": "DEVICE:mondrian,PRODUCT:mondrian,MODEL:23013RK75C",
-            "persist.prophook.com.miui.powerkeeper": "DEVICE:mondrian,PRODUCT:mondrian,MODEL:23013RK75C"
+            "persist.prophook.com.miui.powerkeeper": "DEVICE:mondrian,PRODUCT:mondrian,MODEL:23013RK75C",
+            "persist.sys.miui.unfairMemory.enable": "false"
         }
     }
 }

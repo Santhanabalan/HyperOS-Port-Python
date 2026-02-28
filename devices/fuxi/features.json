@@ -8,7 +8,8 @@
             "ro.product.spoofed.name": "vermeer",
             "ro.spoofed.device": "vermeer",
             "persist.prophook.com.xiaomi.joyose": "DEVICE:vermeer,PRODUCT:vermeer,MODEL:23113RKC6C",
-            "persist.prophook.com.miui.powerkeeper": "DEVICE:vermeer,PRODUCT:vermeer,MODEL:23113RKC6C"
+            "persist.prophook.com.miui.powerkeeper": "DEVICE:vermeer,PRODUCT:vermeer,MODEL:23113RKC6C",
+            "persist.sys.miui.unfairMemory.enable": "false"
         }
     }
 }
