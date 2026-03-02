@@ -10,7 +10,7 @@ import logging
 import shutil
 
 from src.core.modifiers.plugin_system import ModifierPlugin
-from src.utils.smalikit import SmaliKit
+from src.utils.smalikit import SmaliKit, SmaliArgs
 from src.utils.xml_utils import XmlUtils
 
 
@@ -203,9 +203,11 @@ class ApkModifierPlugin(ModifierPlugin):
     # Helper methods for Smali patching
     def smali_patch(self, work_dir: Path, **kwargs):
         """Apply Smali patch using SmaliKit."""
-        args = type('Args', (), kwargs)()
+        args = SmaliArgs(**kwargs)
+        # Use file_path if provided, otherwise use the whole work_dir
+        target_path = args.file_path if args.file_path else str(work_dir)
         patcher = SmaliKit(args)
-        patcher.walk_and_patch(str(work_dir))
+        patcher.walk_and_patch(target_path)
     
     def smali_seek_and_replace(self, work_dir: Path, keyword: str, return_value: str, return_type: str = "Z"):
         """Seek keyword and replace return value."""
