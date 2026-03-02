@@ -479,19 +479,58 @@ class PluginManager:
                 self.logger.info(
                     f"Executing {len(group)} plugins in parallel (priority={priority})..."
                 )
+                
+                # Collect buffered logs and results
+                plugin_logs: Dict[str, str] = {}
+                plugin_errors: Dict[str, Exception] = {}
+                
+                def execute_with_log_capture(plugin):
+                    """Execute plugin and capture logs."""
+                    buffer_handler = None
+                    if plugin.parallel_safe:
+                        buffer_handler = BufferedLogHandler(self.logger)
+                        plugin.logger.addHandler(buffer_handler)
+                        plugin.logger.propagate = False
+                    
+                    try:
+                        success = plugin.modify() if not plugin.timeout else self._execute_with_timeout(plugin, plugin.timeout)
+                        return success, buffer_handler
+                    except Exception as e:
+                        return e, buffer_handler
+                
+                # Submit all tasks
                 with ThreadPoolExecutor(max_workers=min(self._max_workers, len(group))) as executor:
                     futures = {
-                        executor.submit(self._execute_single_plugin, plugin, use_buffer=True): plugin 
+                        executor.submit(execute_with_log_capture, plugin): plugin 
                         for plugin in group
                     }
                     
+                    # Collect results in submission order
                     for future in as_completed(futures):
                         plugin = futures[future]
                         try:
-                            results[plugin.name] = future.result()
+                            result, buffer_handler = future.result()
+                            if isinstance(result, Exception):
+                                plugin_errors[plugin.name] = result
+                                results[plugin.name] = False
+                            else:
+                                results[plugin.name] = result
+                                # Capture buffered logs
+                                if buffer_handler:
+                                    plugin_logs[plugin.name] = buffer_handler.buffer.getvalue()
                         except Exception as e:
                             self.logger.error(f"Plugin {plugin.name} execution error: {e}")
                             results[plugin.name] = False
+                
+                # Flush logs in submission order (not completion order)
+                for plugin in group:
+                    if plugin.name in plugin_logs:
+                        with self._print_lock:
+                            if plugin_logs[plugin.name]:
+                                print(f"=== {plugin.name} ===", flush=True)
+                                print(plugin_logs[plugin.name], end='', flush=True)
+                    elif plugin.name in plugin_errors:
+                        self.logger.error(f"Plugin {plugin.name} failed: {plugin_errors[plugin.name]}")
             else:
                 # Execute serially
                 for plugin in group:
