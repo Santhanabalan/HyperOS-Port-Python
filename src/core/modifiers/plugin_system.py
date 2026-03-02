@@ -13,6 +13,9 @@ import threading
 from src.core.modifiers.transaction import TransactionManager, Transaction
 
 
+import io
+import subprocess
+
 class ModifierPlugin(ABC):
     """Base class for all modifier plugins.
     
@@ -66,6 +69,34 @@ class ModifierPlugin(ABC):
             bool: True if successful, False otherwise
         """
         pass
+
+    def run_command(self, cmd: List[str], cwd: Optional[Path] = None, 
+                   env: Optional[Dict[str, str]] = None, shell: bool = False) -> bool:
+        """Run a shell command and capture output to plugin logger.
+        
+        This prevents output interleaving in parallel execution.
+        """
+        self.logger.debug(f"Executing command: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                cwd=cwd,
+                env=env,
+                shell=shell
+            )
+            
+            if process.stdout:
+                for line in process.stdout:
+                    self.logger.info(f"  [STDOUT] {line.strip()}")
+            
+            return process.wait() == 0
+        except Exception as e:
+            self.logger.error(f"Failed to execute command: {e}")
+            return False
     
     def check_prerequisites(self) -> bool:
         """Check if prerequisites are met before running.
@@ -85,9 +116,57 @@ class ModifierPlugin(ABC):
         return f"{self.__class__.__name__}(name='{self.name}', priority={self.priority})"
 
 
+class FunctionalPlugin(ModifierPlugin):
+    """A wrapper for functional plugins."""
+    
+    def __init__(self, context: Any, func: Callable[[Any], bool], name: str, 
+                 priority: int = 100, **kwargs):
+        self.name = name
+        self.priority = priority
+        # Apply any other metadata from kwargs
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+            
+        super().__init__(context)
+        self._func = func
+        
+    def modify(self) -> bool:
+        return self._func(self.ctx)
+
+
+class BufferedLogHandler(logging.Handler):
+    """Handler that buffers log records in memory for atomic output."""
+    
+    def __init__(self, target_logger: logging.Logger):
+        super().__init__()
+        self.buffer = io.StringIO()
+        self.target_logger = target_logger
+        # Use the same formatter as the root logger or a default one
+        self.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+    def emit(self, record):
+        if self.formatter:
+            self.buffer.write(self.format(record) + '\n')
+        else:
+            self.buffer.write(record.getMessage() + '\n')
+
+    def flush_to_target(self):
+        """Flush buffered content to the actual logger output."""
+        content = self.buffer.getvalue()
+        if content:
+            # We use print here because we want to avoid further formatting 
+            # and ensure it hits the console directly if that's where logs go.
+            # In a production environment, you might want to log this as a single block.
+            print(content, end='', flush=True)
+            self.buffer.truncate(0)
+            self.buffer.seek(0)
+
+
 class PluginManager:
     """Manages modifier plugins and their execution."""
     
+    _print_lock = threading.Lock()
+
     def __init__(self, context: Any, logger: Optional[logging.Logger] = None, 
                  backup_dir: Optional[Path] = None, enable_transactions: bool = True,
                  max_workers: int = 4, dry_run: bool = False):
@@ -242,76 +321,92 @@ class PluginManager:
             groups[plugin.priority].append(plugin)
         return groups
     
-    def _execute_single_plugin(self, plugin: ModifierPlugin) -> Optional[bool]:
+    def _execute_single_plugin(self, plugin: ModifierPlugin, use_buffer: bool = False) -> Optional[bool]:
         """Execute a single plugin with timeout support.
         
         Returns:
             bool: True if successful, False if failed, None if skipped
         """
-        # Run pre-modify hooks
-        for hook in self._hooks['pre_modify']:
-            try:
-                hook(plugin)
-            except Exception as e:
-                self.logger.warning(f"Pre-modify hook failed: {e}")
-        
-        # Check prerequisites
-        if not plugin.check_prerequisites():
-            self.logger.info(f"Skipping plugin {plugin.name}: prerequisites not met")
-            return None
-        
-        # Check version compatibility
-        if not self._check_version_compatibility(plugin):
-            return None
-        
-        # Dry-run mode
-        if self._dry_run:
-            self.logger.info(f"[DRY-RUN] Would execute plugin: {plugin.name}")
-            self.logger.info(f"  - Description: {plugin.description}")
-            self.logger.info(f"  - Priority: {plugin.priority}")
-            self.logger.info(f"  - Timeout: {plugin.timeout}s")
-            return True
-        
-        # Execute plugin with optional timeout
+        # Setup buffering if requested (for parallel execution)
+        buffer_handler = None
+        if use_buffer:
+            buffer_handler = BufferedLogHandler(self.logger)
+            plugin.logger.addHandler(buffer_handler)
+            # Prevent logs from propagating to root and causing mess during execution
+            plugin.logger.propagate = False
+
         try:
-            if self._transaction_manager:
-                with self._transaction_manager.transaction(plugin.name) as txn:
+            # Run pre-modify hooks
+            for hook in self._hooks['pre_modify']:
+                try:
+                    hook(plugin)
+                except Exception as e:
+                    self.logger.warning(f"Pre-modify hook failed: {e}")
+            
+            # Check prerequisites
+            if not plugin.check_prerequisites():
+                self.logger.info(f"Skipping plugin {plugin.name}: prerequisites not met")
+                return None
+            
+            # Check version compatibility
+            if not self._check_version_compatibility(plugin):
+                return None
+            
+            # Dry-run mode
+            if self._dry_run:
+                self.logger.info(f"[DRY-RUN] Would execute plugin: {plugin.name}")
+                self.logger.info(f"  - Description: {plugin.description}")
+                self.logger.info(f"  - Priority: {plugin.priority}")
+                self.logger.info(f"  - Timeout: {plugin.timeout}s")
+                return True
+            
+            # Execute plugin with optional timeout
+            try:
+                if self._transaction_manager:
+                    with self._transaction_manager.transaction(plugin.name) as txn:
+                        timeout = plugin.timeout
+                        if timeout:
+                            success: Optional[bool] = self._execute_with_timeout(plugin, timeout)
+                        else:
+                            success = plugin.modify()
+                        
+                        if success:
+                            self.logger.info(f"Plugin {plugin.name} completed successfully")
+                            self._transaction_manager.commit(plugin.name)
+                        else:
+                            self.logger.warning(f"Plugin {plugin.name} returned failure")
+                        return success
+                else:
                     timeout = plugin.timeout
                     if timeout:
-                        success: Optional[bool] = self._execute_with_timeout(plugin, timeout)
+                        success = self._execute_with_timeout(plugin, timeout)
                     else:
                         success = plugin.modify()
                     
                     if success:
                         self.logger.info(f"Plugin {plugin.name} completed successfully")
-                        self._transaction_manager.commit(plugin.name)
                     else:
                         self.logger.warning(f"Plugin {plugin.name} returned failure")
                     return success
-            else:
-                timeout = plugin.timeout
-                if timeout:
-                    success = self._execute_with_timeout(plugin, timeout)
-                else:
-                    success = plugin.modify()
+                    
+            except Exception as e:
+                self.logger.error(f"Plugin {plugin.name} failed: {e}")
                 
-                if success:
-                    self.logger.info(f"Plugin {plugin.name} completed successfully")
-                else:
-                    self.logger.warning(f"Plugin {plugin.name} returned failure")
-                return success
+                # Run error hooks
+                for hook in self._hooks['on_error']:
+                    try:
+                        hook(plugin, e)
+                    except Exception as hook_e:
+                        self.logger.warning(f"Error hook failed: {hook_e}")
                 
-        except Exception as e:
-            self.logger.error(f"Plugin {plugin.name} failed: {e}")
-            
-            # Run error hooks
-            for hook in self._hooks['on_error']:
-                try:
-                    hook(plugin, e)
-                except Exception as hook_e:
-                    self.logger.warning(f"Error hook failed: {hook_e}")
-            
-            return False
+                return False
+        finally:
+            if buffer_handler:
+                # Atomically flush the buffer
+                with self._print_lock:
+                    buffer_handler.flush_to_target()
+                plugin.logger.removeHandler(buffer_handler)
+                plugin.logger.propagate = True
     
     def _execute_with_timeout(self, plugin: ModifierPlugin, timeout: float) -> bool:
         """Execute plugin with timeout.
@@ -386,7 +481,7 @@ class PluginManager:
                 )
                 with ThreadPoolExecutor(max_workers=min(self._max_workers, len(group))) as executor:
                     futures = {
-                        executor.submit(self._execute_single_plugin, plugin): plugin 
+                        executor.submit(self._execute_single_plugin, plugin, use_buffer=True): plugin 
                         for plugin in group
                     }
                     
@@ -492,6 +587,28 @@ class ModifierRegistry:
         name = plugin_class.name or plugin_class.__name__
         cls._registry[name] = plugin_class
         return plugin_class
+    
+    @classmethod
+    def micro_plugin(cls, name: str, priority: int = 100, **kwargs):
+        """Decorator to register a simple function as a micro-plugin.
+        
+        Example:
+            @ModifierRegistry.micro_plugin("my_feature", priority=50)
+            def my_feature(ctx):
+                # ... modification logic ...
+                return True
+        """
+        def decorator(func: Callable[[Any], bool]):
+            # Create a dynamic plugin class
+            class DerivedFunctionalPlugin(FunctionalPlugin):
+                def __init__(self, context: Any):
+                    super().__init__(context, func, name, priority, **kwargs)
+            
+            # Set the class name for easier debugging
+            DerivedFunctionalPlugin.__name__ = f"MicroPlugin_{name}"
+            cls.register(DerivedFunctionalPlugin)
+            return func
+        return decorator
     
     @classmethod
     def get(cls, name: str) -> Optional[Type[ModifierPlugin]]:
