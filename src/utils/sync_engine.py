@@ -2,6 +2,7 @@ import shutil
 import time
 import subprocess
 import logging
+import threading
 from pathlib import Path
 
 class ROMSyncEngine:
@@ -11,6 +12,7 @@ class ROMSyncEngine:
         self._stock_rom_cache = {}
         self._target_rom_cache = {}
         self._target_package_cache = {}
+        self._cache_lock = threading.Lock()
 
     def _build_cache(self, directory: Path) -> dict:
         """Scan directory and build global index dictionary (O(1) lookup)"""
@@ -256,24 +258,29 @@ class ROMSyncEngine:
 
     def _build_package_cache(self, directory: Path):
         """Scan all APKs in directory, extract and cache their Package Name"""
-        if not directory or not directory.exists():
-            return
-            
-        self.logger.info(f"Building APK package name cache for {directory.name}...")
-        start_time = time.time()
-        
-        apk_count = 0
-        # Only scan .apk files, skip .odex, .vdex etc.
-        for apk_path in directory.rglob("*.apk"):
-            pkg_name = self._get_apk_package_name(apk_path)
-            if pkg_name:
-                if pkg_name not in self._target_package_cache:
-                    self._target_package_cache[pkg_name] = []
-                self._target_package_cache[pkg_name].append(apk_path)
-                apk_count += 1
+        with self._cache_lock:
+            # Double check if someone else built it while we were waiting for the lock
+            if self._target_package_cache:
+                return
+
+            if not directory or not directory.exists():
+                return
                 
-        elapsed = time.time() - start_time
-        self.logger.info(f"Package cache built in {elapsed:.2f}s. Indexed {apk_count} APKs.")
+            self.logger.info(f"Building APK package name cache for {directory.name}...")
+            start_time = time.time()
+            
+            apk_count = 0
+            # Only scan .apk files, skip .odex, .vdex etc.
+            for apk_path in directory.rglob("*.apk"):
+                pkg_name = self._get_apk_package_name(apk_path)
+                if pkg_name:
+                    if pkg_name not in self._target_package_cache:
+                        self._target_package_cache[pkg_name] = []
+                    self._target_package_cache[pkg_name].append(apk_path)
+                    apk_count += 1
+                    
+            elapsed = time.time() - start_time
+            self.logger.info(f"Package cache built in {elapsed:.2f}s. Indexed {apk_count} APKs.")
     
     def find_apk_by_name(self, apk_name: str, target_dir: Path = None) -> Path | None:
         """Find APK by filename.
@@ -290,7 +297,9 @@ class ROMSyncEngine:
         
         # Ensure cache is built
         if target_dir and not self._target_rom_cache:
-            self._target_rom_cache = self._build_cache(target_dir)
+            with self._cache_lock:
+                if not self._target_rom_cache:
+                    self._target_rom_cache = self._build_cache(target_dir)
         
         # Find in cache
         matches = self._target_rom_cache.get(apk_name.lower(), [])

@@ -362,21 +362,26 @@ class PortingContext:
     def build_apk_caches(self, force: bool = False) -> dict:
         """
         Build APK caches for fast lookup.
-        
+
         Delegates to ROMSyncEngine for caching.
-        
+
         Args:
             force: If True, rebuild even if caches already exist
-            
+
         Returns:
             dict with 'files' and 'packages' counts
         """
+        # 1. Build name cache
         if force or not hasattr(self.syncer, '_target_rom_cache') or not self.syncer._target_rom_cache:
             # Force build by passing target_dir
             self.syncer.find_apk_by_name("dummy.apk", self.target_dir)
-        
+
+        # 2. Build package cache
+        if force or not hasattr(self.syncer, '_target_package_cache') or not self.syncer._target_package_cache:
+            # Force build by passing target_dir
+            self.syncer.find_apk_by_package("dummy.package", self.target_dir)
+
         return self.syncer.get_apk_cache_stats()
-    
     def _get_apk_package_name(self, apk_path: Path) -> str | None:
         """
         Use aapt2 to parse APK package name.
