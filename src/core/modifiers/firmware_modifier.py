@@ -134,7 +134,7 @@ class FirmwareModifier(BaseModifier):
 
         self._apply_ksu_patch(patch_target, kmi_version)
 
-    def _analyze_kmi(self, boot_img):
+    def _analyze_kmi(self, boot_img: Path) -> Optional[str]:
         """Analyze kernel image to extract KMI version."""
         with tempfile.TemporaryDirectory(prefix="ksu_kmi_") as tmp:
             tmp_path = Path(tmp)
@@ -144,11 +144,13 @@ class FirmwareModifier(BaseModifier):
                 self.shell.run(
                     [str(self.ctx.tools.magiskboot), "unpack", "boot.img"], cwd=tmp_path
                 )
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"Magiskboot unpack failed: {e}")
                 return None
 
             kernel_file = tmp_path / "kernel"
             if not kernel_file.exists():
+                self.logger.debug("Kernel file not found after unpack.")
                 return None
 
             try:
@@ -171,8 +173,10 @@ class FirmwareModifier(BaseModifier):
                         match = pattern.search(s)
                         if match:
                             return f"{match.group(2)}-{match.group(1)}"
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error(f"Error parsing kernel file: {e}")
+        
+        self.logger.warning("Could not find KMI version pattern in kernel.")
         return None
 
     def _prepare_ksu_assets(self, kmi_version):
