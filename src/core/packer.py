@@ -716,11 +716,19 @@ class Repacker:
 
     def _get_super_size(self) -> int:
         """Get Super partition size"""
+        # 1. Check from device config first
+        if hasattr(self.ctx, "device_config"):
+            super_size = self.ctx.device_config.get("pack", {}).get("super_size")
+            if super_size:
+                return int(super_size)
+
+        # 2. Fallback to hardcoded map
         device_code: str = self.ctx.stock_rom_code.upper()
         size_map: Dict[int, List[str]] = {
             9663676416: ["FUXI", "NUWA", "ISHTAR", "MARBLE", "SOCRATES", "BABYLON"],
             9122611200: ["SUNSTONE"],
             11811160064: ["YUDI"],
+            13411287040: ["PUDDING"],
         }
         for size, devices in size_map.items():
             if device_code in devices:
