@@ -83,11 +83,16 @@ ruff check src/
 ```
 
 ### 2. Basic Usage
-Prepare your Stock ROM and Port ROM ZIP files, then run:
+Prepare your Stock ROM and Port ROM ZIP files (or just Stock ROM for Official Modification), then run:
 
 **OTA/Recovery Mode (Default):**
 ```bash
 sudo python3 main.py --stock <path_to_stock_zip> --port <path_to_port_zip>
+```
+
+**Official Modification Mode (Modify Stock ROM only):**
+```bash
+sudo python3 main.py --stock <path_to_stock_zip>
 ```
 
 **Hybrid/Fastboot Mode (Super Image):**
@@ -104,7 +109,7 @@ sudo python3 main.py --stock <path_to_stock_zip> --port <path_to_port_zip> --pac
 | Argument | Description | Default |
 | :--- | :--- | :--- |
 | `--stock` | **(Required)** Path to the Stock ROM (Base) | N/A |
-| `--port` | **(Required)** Path to the Port ROM (Source) | N/A |
+| `--port` | **(Optional)** Path to the Port ROM. If omitted, tool runs in **Official Modification mode**. | N/A |
 | `--pack-type` | Output format: `payload` or `super` | from config |
 | `--fs-type` | Filesystem type: `erofs` or `ext4` | from config |
 | `--ksu` | Inject KernelSU into `init_boot`/`boot` | from config |

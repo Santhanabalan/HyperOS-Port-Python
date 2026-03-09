@@ -82,11 +82,16 @@ ruff check src/
 ```
 
 ### 2. 基本用法
-准备好底包 (Stock ROM) 和移植包 (Port ROM) 的 ZIP 文件，然后运行：
+准备好底包 (Stock ROM) 和移植包 (Port ROM) 的 ZIP 文件（官改模式仅需底包），然后运行：
 
 **OTA/Recovery 模式 (默认):**
 ```bash
 sudo python3 main.py --stock <底包路径> --port <移植包路径>
+```
+
+**官改模式 (仅修改底包):**
+```bash
+sudo python3 main.py --stock <底包路径>
 ```
 
 **Hybrid/Fastboot 模式 (Super Image):**
@@ -103,7 +108,7 @@ sudo python3 main.py --stock <底包路径> --port <移植包路径> --pack-type
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :--- |
 | `--stock` | **(必需)** 底包 (Stock ROM) 路径 | 无 |
-| `--port` | **(必需)** 移植包 (Port ROM) 路径 | 无 |
+| `--port` | **(可选)** 移植包 (Port ROM) 路径。如果省略，则运行 **官改模式**。 | 无 |
 | `--pack-type` | 打包格式: `payload` 或 `super` | `payload` |
 | `--fs-type` | 文件系统类型：`erofs` 或 `ext4` | 从 config 读取 |
 | `--ksu` | 注入 KernelSU 到 `init_boot`/`boot` | 从 config 读取 |
