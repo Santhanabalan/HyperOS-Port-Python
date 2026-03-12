@@ -145,16 +145,26 @@ class PortRomCacheManager:
         >>> cache.restore_partition(rom_path, "system", target_dir)
     """
 
-    def __init__(self, cache_root: Union[str, Path] = DEFAULT_CACHE_ROOT):
+    def __init__(
+        self,
+        cache_root: Union[str, Path] = DEFAULT_CACHE_ROOT,
+        cache_partitions: bool = True,
+    ):
         """
         初始化缓存管理器
 
         Args:
             cache_root: 缓存根目录路径，默认为".cache/portroms"
+            cache_partitions: 是否启用分区级缓存，默认为True
         """
         self.cache_root = Path(cache_root).resolve()
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self.logger = logging.getLogger("PortRomCacheManager")
+
+        # 分区级缓存开关
+        self.cache_partitions = cache_partitions
+        if not cache_partitions:
+            self.logger.info("Partition-level caching is disabled")
 
         # 确保元数据目录存在
         self._metadata_file = self.cache_root / "metadata.json"
@@ -253,6 +263,9 @@ class PortRomCacheManager:
         Returns:
             True如果缓存存在且有效
         """
+        if not self.cache_partitions:
+            return False
+
         try:
             rom_hash = self._compute_rom_hash(rom_path)
         except FileNotFoundError:
@@ -306,6 +319,9 @@ class PortRomCacheManager:
         Returns:
             True如果存储成功
         """
+        if not self.cache_partitions:
+            return False
+
         rom_hash = self._compute_rom_hash(rom_path)
         cache_dir = self._get_partition_cache_dir(rom_hash, partition)
         lock_file = self._get_lock_file(rom_hash)
@@ -383,7 +399,7 @@ class PortRomCacheManager:
         Returns:
             True如果恢复成功
         """
-        if not self.is_partition_cached(rom_path, partition):
+        if not self.cache_partitions:
             return False
 
         rom_hash = self._compute_rom_hash(rom_path)

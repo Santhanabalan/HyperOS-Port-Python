@@ -226,6 +226,11 @@ def main():
         # Store device config in context for plugins
         ctx.device_config = device_config  # type: ignore
 
+        # Check cache configuration
+        if cache_manager and not device_config.get("cache", {}).get("partitions", True):
+            logger.info("Partition-level caching disabled by device config")
+            cache_manager.cache_partitions = False
+
         # Determine settings
         enable_ksu = args.ksu or device_config.get("ksu", {}).get("enable", False)
         ctx.enable_ksu = enable_ksu
