@@ -156,22 +156,24 @@ class ApkModifierPlugin(ModifierPlugin):
     def _get_cache_key(self) -> Optional[str]:
         """Generate cache key for this APK modification.
 
+        Uses Port ROM hash instead of individual APK hash to avoid
+        cache misses when the APK has already been modified.
+
         Returns:
             Cache key string or None if caching not possible
         """
-        if not self._apk_path or not self._apk_path.exists():
+        if not hasattr(self.ctx, "cache_manager") or not self.ctx.cache_manager:
             return None
 
-        # Get APK hash
-        import hashlib
+        # Use Port ROM hash as the base
+        try:
+            rom_hash = self.ctx.cache_manager._compute_rom_hash(self.ctx.port.path)
+        except (FileNotFoundError, AttributeError):
+            return None
 
-        hash_md5 = hashlib.md5()
-        with open(self._apk_path, "rb") as f:
-            hash_md5.update(f.read(10 * 1024 * 1024))  # Read first 10MB
-        apk_hash = hash_md5.hexdigest()[:16]
-
-        # Combine: APK name, APK hash, modifier class name, cache version
-        return f"{self.apk_name}_{apk_hash}_{self.__class__.__name__}_v{self.cache_version}"
+        # Combine: ROM hash, APK name, modifier class name, cache version
+        # This ensures same Port ROM + same APK + same modifier = cache hit
+        return f"{rom_hash}_{self.apk_name}_{self.__class__.__name__}_v{self.cache_version}"
 
     def _get_cached_apk(self) -> Optional[Path]:
         """Check if a cached modified APK exists.
@@ -186,12 +188,8 @@ class ApkModifierPlugin(ModifierPlugin):
         if not cache_key:
             return None
 
-        cache_dir = (
-            self.ctx.cache_manager._get_apk_cache_dir(
-                self.ctx.cache_manager._compute_rom_hash(self.ctx.port.path)
-            )
-            / cache_key
-        )
+        # Use shortened cache key for directory name
+        cache_dir = self.ctx.cache_manager._get_apk_cache_dir(cache_key[:32]) / cache_key
 
         cached_apk = cache_dir / "modified.apk"
         if cached_apk.exists():
@@ -215,12 +213,8 @@ class ApkModifierPlugin(ModifierPlugin):
             return False
 
         try:
-            cache_dir = (
-                self.ctx.cache_manager._get_apk_cache_dir(
-                    self.ctx.cache_manager._compute_rom_hash(self.ctx.port.path)
-                )
-                / cache_key
-            )
+            # Use shortened cache key for directory name
+            cache_dir = self.ctx.cache_manager._get_apk_cache_dir(cache_key[:32]) / cache_key
             cache_dir.mkdir(parents=True, exist_ok=True)
 
             cached_apk = cache_dir / "modified.apk"
