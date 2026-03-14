@@ -369,9 +369,15 @@ class PortingContext:
         self.logger.info(f"Security Patch: {self.security_patch}")
 
         # 7. EU ROM Detection
-        # Check filename or ro.build.host
+        # Check filename, build host, or mod_device
         build_host: Optional[str] = self.port.get_prop("ro.build.host", "")
-        if "xiaomi.eu" in self.port.path.name.lower() or "xiaomi.eu" in (build_host or "").lower():
+        mod_device: Optional[str] = self.port.get_prop("ro.product.mod_device", "")
+
+        if (
+            "xiaomi.eu" in self.port.path.name.lower()
+            or "xiaomi.eu" in (build_host or "").lower()
+            or (mod_device and mod_device.endswith("_global"))
+        ):
             self.is_port_eu_rom: bool = True
         else:
             self.is_port_eu_rom = False
