@@ -43,5 +43,8 @@ jobs:
             src/core/modifiers/plugin_system.py \
             src/core/modifiers/unified_modifier.py
 
+      - name: Run curated mypy checks
+        run: python -m mypy --config-file mypy-curated.ini
+
       - name: Run pytest
         run: python -m pytest -q

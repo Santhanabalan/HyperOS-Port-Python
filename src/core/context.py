@@ -4,7 +4,7 @@ import concurrent.futures
 import logging
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 from src.core.rom import RomPackage
 from src.core.rom_metadata import populate_rom_metadata
@@ -50,6 +50,17 @@ class PortingContext:
         self.cache_manager: PortRomCacheManager | None = None
         self.device_config: dict[str, Any] = {}
         self.eu_bundle: str | None = None
+        self.base_android_version: str = "0"
+        self.port_android_version: str = "0"
+        self.base_android_sdk: str = "0"
+        self.port_android_sdk: str = "0"
+        self.target_rom_version: str = ""
+        self.stock_rom_code: str = "unknown"
+        self.port_rom_code: str = "unknown"
+        self.is_ab_device: bool = False
+        self.security_patch: str = "Unknown"
+        self.is_port_eu_rom: bool = False
+        self.is_port_global_rom: bool = False
 
     def _init_tools(self) -> None:
         """Resolve platform-specific tooling paths."""
@@ -158,7 +169,7 @@ class PortingContext:
             # Force build by passing target_dir
             self.syncer.find_apk_by_package("dummy.package", self.target_dir)
 
-        return self.syncer.get_apk_cache_stats()
+        return cast(dict[str, int], self.syncer.get_apk_cache_stats())
 
     def _get_apk_package_name(self, apk_path: Path) -> Optional[str]:
         """
@@ -199,7 +210,7 @@ class PortingContext:
         Returns:
             Path to APK or None if not found
         """
-        return self.syncer.find_apk_by_name(apk_name, self.target_dir)
+        return cast(Optional[Path], self.syncer.find_apk_by_name(apk_name, self.target_dir))
 
     def find_apk_by_package(self, package_name: str) -> Optional[Path]:
         """
@@ -213,7 +224,7 @@ class PortingContext:
         Returns:
             Path to APK or None if not found
         """
-        return self.syncer.find_apk_by_package(package_name, self.target_dir)
+        return cast(Optional[Path], self.syncer.find_apk_by_package(package_name, self.target_dir))
 
     def clear_apk_caches(self) -> None:
         """Clear APK caches to free memory."""

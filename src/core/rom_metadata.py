@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
     from src.core.context import PortingContext
@@ -142,7 +143,8 @@ def _build_new_base_code_segment(
 def _detect_stock_rom_code(ctx: "PortingContext") -> str:
     try:
         base_feat_dir = ctx.stock.extracted_dir / "product/etc/device_features"
-        return next(base_feat_dir.glob("*.xml")).stem
+        xml_file = cast(Path, next(base_feat_dir.glob("*.xml")))
+        return xml_file.stem
     except StopIteration:
         return ctx.stock.get_prop("ro.product.vendor.device") or "unknown"
     except Exception as exc:
