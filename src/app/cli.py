@@ -1,0 +1,95 @@
+"""CLI parsing helpers for the HyperOS porting entrypoint."""
+
+from __future__ import annotations
+
+import argparse
+from typing import Sequence
+
+VALID_PHASES = ("system", "apk", "framework", "firmware", "repack")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(description="HyperOS Porting Tool")
+    parser.add_argument("--stock", required=True, help="Path to Stock ROM (zip/payload/dir)")
+    parser.add_argument(
+        "--port",
+        required=False,
+        help="Path to Port ROM (zip/payload/dir). If omitted, runs in Official Modification mode.",
+    )
+    parser.add_argument(
+        "--ksu",
+        action="store_true",
+        help="Inject KernelSU into init_boot/boot. Default: from config or False",
+    )
+    parser.add_argument("--work-dir", default="build", help="Working directory (default: build)")
+    parser.add_argument("--clean", action="store_true", help="Clean working directory before starting")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--pack-type",
+        choices=["super", "payload"],
+        default=None,
+        help=(
+            "Output format: super (Super Image/Fastboot) or payload (OTA Payload/Recovery). "
+            "Default: from config or 'payload'"
+        ),
+    )
+    parser.add_argument(
+        "--fs-type",
+        choices=["erofs", "ext4"],
+        default=None,
+        help="Filesystem type for repacking. Default: from config or 'erofs'",
+    )
+    parser.add_argument("--eu-bundle", help="Path/URL to EU Localization Bundle zip")
+    parser.add_argument(
+        "--phases",
+        nargs="+",
+        help="Specific phases to run: system, apk, framework, firmware, repack (default: all)",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=".cache/portroms",
+        help="Cache directory for Port ROM reuse (default: .cache/portroms)",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable cache, force full extraction and modification",
+    )
+    parser.add_argument(
+        "--enable-partition-cache",
+        action="store_true",
+        help="Enable partition-level caching (disabled by default). APK caching is always enabled.",
+    )
+    parser.add_argument("--clear-cache", action="store_true", help="Clear all cache before starting")
+    parser.add_argument(
+        "--show-cache-stats", action="store_true", help="Show cache statistics and exit"
+    )
+    return parser
+
+
+def normalize_phases(phases: Sequence[str] | None) -> list[str] | None:
+    """Expand and normalize CLI phase arguments."""
+    if not phases:
+        return None
+
+    expanded: list[str] = []
+    for phase in phases:
+        expanded.extend(part.strip() for part in phase.split(",") if part.strip())
+    return expanded
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.phases = normalize_phases(args.phases)
+
+    if args.phases:
+        invalid = [phase for phase in args.phases if phase not in VALID_PHASES]
+        if invalid:
+            parser.error(
+                f"invalid choice: {', '.join(invalid)} (choose from {', '.join(VALID_PHASES)})"
+            )
+
+    return args

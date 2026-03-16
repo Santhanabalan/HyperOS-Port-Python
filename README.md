@@ -82,7 +82,7 @@ python3 -m venv .venv
 .venv/bin/python -m black src tests main.py
 
 # Linting
-.venv/bin/python -m ruff check main.py tests
+.venv/bin/python -m ruff check main.py tests src/app
 
 ```
 
@@ -278,7 +278,7 @@ This project uses several tools to maintain code quality:
 | Tool | Purpose | Command |
 |------|---------|---------|
 | **Black** | Code formatting | `.venv/bin/python -m black src tests main.py` |
-| **Ruff** | Fast Python linting | `.venv/bin/python -m ruff check main.py tests` |
+| **Ruff** | Fast Python linting | `.venv/bin/python -m ruff check main.py tests src/app` |
 
 ### Developer Self-Check
 
@@ -286,7 +286,7 @@ Run the same checks as CI before opening a pull request:
 
 ```bash
 .venv/bin/python -m compileall -q src tests main.py
-.venv/bin/python -m ruff check main.py tests
+.venv/bin/python -m ruff check main.py tests src/app
 .venv/bin/python -m pytest -q
 ```
 

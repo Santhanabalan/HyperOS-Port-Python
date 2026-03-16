@@ -7,14 +7,14 @@ import subprocess
 from pathlib import Path
 import platform
 from types import SimpleNamespace
-from typing import Optional, Dict, List, Union, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from src.core.rom import RomPackage
 from src.utils.sync_engine import ROMSyncEngine
 from src.utils.shell import ShellRunner
 
 if TYPE_CHECKING:
-    pass  # For future type imports
+    from src.core.cache_manager import PortRomCacheManager
 
 
 class PortingContext:
@@ -42,6 +42,9 @@ class PortingContext:
         self.syncer: ROMSyncEngine = ROMSyncEngine(self, logging.getLogger("SyncEngine"))
         self.shell: ShellRunner = ShellRunner()
         self.enable_ksu: bool = False
+        self.cache_manager: PortRomCacheManager | None = None
+        self.device_config: dict[str, Any] = {}
+        self.eu_bundle: str | None = None
 
     def _init_tools(self) -> None:
         """
