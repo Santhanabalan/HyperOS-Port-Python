@@ -11,7 +11,7 @@ import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, cast
 
 from src.core.modifiers.transaction import TransactionManager
 
@@ -290,7 +290,7 @@ class PluginManager:
         plugins = [p for p in self._plugins.values() if p.enabled]
 
         # Build dependency graph
-        resolved = []
+        resolved: List[ModifierPlugin] = []
         unresolved = set(p.name for p in plugins)
 
         while unresolved:
@@ -485,7 +485,7 @@ class PluginManager:
 
         return bool(result[0])
 
-    def execute(self, plugin_names: Optional[List[str]] = None) -> Dict[str, bool]:
+    def execute(self, plugin_names: Optional[List[str]] = None) -> Dict[str, bool | None]:
         """Execute all or specific plugins.
 
         Supports parallel execution of same-priority plugins.
@@ -494,9 +494,9 @@ class PluginManager:
             plugin_names: Optional list of specific plugins to run
 
         Returns:
-            Dict mapping plugin names to success status
+            Dict mapping plugin names to success status, with None for skipped plugins
         """
-        results = {}
+        results: Dict[str, bool | None] = {}
 
         # Get sorted plugins
         if plugin_names:
@@ -583,7 +583,7 @@ class PluginManager:
                                 results[plugin.name] = False
                                 self.logger.error(f"Plugin {plugin.name} failed: {result}")
                             else:
-                                results[plugin.name] = result
+                                results[plugin.name] = bool(result)
                                 # Capture buffered logs
                                 if buffer_handler:
                                     plugin_logs[plugin.name] = buffer_handler.buffer.getvalue()
@@ -667,7 +667,7 @@ class PluginManager:
             Path to backup file if created, None otherwise
         """
         if self._transaction_manager:
-            return self._transaction_manager.record_modification(path, action)
+            return cast(Optional[Path], self._transaction_manager.record_modification(path, action))
         return None
 
     def rollback_all(self) -> int:
@@ -677,7 +677,7 @@ class PluginManager:
             int: Total files rolled back
         """
         if self._transaction_manager:
-            return self._transaction_manager.rollback_all()
+            return cast(int, self._transaction_manager.rollback_all())
         return 0
 
     def cleanup_backups(self):
@@ -817,12 +817,6 @@ def load_plugins_from_config(config: Dict[str, Any], manager: PluginManager) -> 
     Returns:
         PluginManager for chaining
     """
-    import json
-
-    if isinstance(config, str):
-        with open(config, "r") as f:
-            config = json.load(f)
-
     plugins_config = config.get("plugins", [])
 
     for plugin_config in plugins_config:
