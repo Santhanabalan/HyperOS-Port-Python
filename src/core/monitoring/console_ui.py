@@ -3,13 +3,12 @@
 Provides real-time progress bars, spinners, and console output.
 """
 
-import sys
-import time
-import threading
 import logging
-from typing import Optional, List
+import sys
+import threading
+import time
 from dataclasses import dataclass, field
-
+from typing import List, Optional
 
 # Logger for diagnostic messages (not for UI output)
 logger = logging.getLogger(__name__)
@@ -222,7 +221,7 @@ def print_table(headers: List[str], rows: List[List[str]], padding: int = 2):
             widths[i] = max(widths[i], len(str(cell)))
 
     # Print header
-    header_line = " | ".join(h.ljust(w) for h, w in zip(headers, widths))
+    header_line = " | ".join(h.ljust(w) for h, w in zip(headers, widths, strict=False))
     # UI output: table header
     print(header_line)
     # UI output: table separator
@@ -231,4 +230,6 @@ def print_table(headers: List[str], rows: List[List[str]], padding: int = 2):
     # Print rows
     for row in rows:
         # UI output: table row
-        print(" | ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
+        print(
+            " | ".join(str(cell).ljust(w) for cell, w in zip(row, widths, strict=False))
+        )

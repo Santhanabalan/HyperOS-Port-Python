@@ -46,6 +46,7 @@ jobs:
             src/core/rom/extractors.py \
             src/core/rom/utils.py \
             src/core/monitoring/__init__.py \
+            src/core/monitoring/console_ui.py \
             src/core/monitoring/plugin_integration.py \
             src/core/monitoring/workflow_integration.py \
             src/core/rom_metadata.py \
@@ -53,6 +54,7 @@ jobs:
             src/core/workspace.py \
             src/core/modifiers/__init__.py \
             src/core/modifiers/base_modifier.py \
+            src/core/modifiers/framework/modifier.py \
             src/core/modifiers/plugin_system.py \
             src/core/modifiers/smali_args.py \
             src/core/modifiers/transaction.py \
