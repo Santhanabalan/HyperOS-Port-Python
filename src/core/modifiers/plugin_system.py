@@ -11,7 +11,7 @@ import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, cast
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from src.core.modifiers.transaction import TransactionManager
 
@@ -667,7 +667,7 @@ class PluginManager:
             Path to backup file if created, None otherwise
         """
         if self._transaction_manager:
-            return cast(Optional[Path], self._transaction_manager.record_modification(path, action))
+            return self._transaction_manager.record_modification(path, action)
         return None
 
     def rollback_all(self) -> int:
@@ -677,7 +677,7 @@ class PluginManager:
             int: Total files rolled back
         """
         if self._transaction_manager:
-            return cast(int, self._transaction_manager.rollback_all())
+            return self._transaction_manager.rollback_all()
         return 0
 
     def cleanup_backups(self):

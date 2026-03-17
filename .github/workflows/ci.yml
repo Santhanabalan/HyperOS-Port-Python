@@ -52,6 +52,7 @@ jobs:
             src/core/workspace.py \
             src/core/modifiers/__init__.py \
             src/core/modifiers/plugin_system.py \
+            src/core/modifiers/transaction.py \
             src/core/modifiers/unified_modifier.py
 
       - name: Run curated mypy checks
