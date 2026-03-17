@@ -38,3 +38,12 @@ def test_run_preflight_reports_invalid_eu_bundle(tmp_path: Path):
     report = run_preflight(args, is_official_modify=True, logger=logging.getLogger("test"))
 
     assert any(f.code == "EU_BUNDLE_INVALID_ZIP" for f in report.findings)
+
+
+def test_preflight_report_strict_mode_and_action_fields(tmp_path: Path):
+    args = _make_args(tmp_path, port=str(tmp_path / "missing.zip"))
+    report = run_preflight(args, is_official_modify=False, logger=logging.getLogger("test"))
+
+    assert report.has_failures(strict=False) is True
+    assert report.has_failures(strict=True) is True
+    assert any(f.action for f in report.findings)

@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip preflight checks before porting workflow",
     )
     parser.add_argument(
+        "--preflight-strict",
+        action="store_true",
+        help="Treat risk findings as failures in preflight checks",
+    )
+    parser.add_argument(
         "--preflight-report",
         default="build/preflight-report.json",
         help="Path to write preflight JSON report (default: build/preflight-report.json)",

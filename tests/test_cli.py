@@ -27,4 +27,5 @@ def test_parse_args_accepts_preflight_flags():
 
     assert args.preflight_only is True
     assert args.skip_preflight is False
+    assert args.preflight_strict is False
     assert args.preflight_report == "out/preflight.json"

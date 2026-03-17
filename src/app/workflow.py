@@ -152,8 +152,9 @@ def execute_porting(args, logger: logging.Logger) -> int:
         preflight_report = run_preflight(args, is_official_modify, logger)
         report_path = save_preflight_report(preflight_report, args.preflight_report)
         logger.info(f"Preflight report saved to: {report_path}")
-        if preflight_report.has_blockers():
-            logger.error("Preflight checks failed with blockers. Aborting.")
+        if preflight_report.has_failures(strict=args.preflight_strict):
+            mode = "strict mode (blockers + risks)" if args.preflight_strict else "blockers"
+            logger.error(f"Preflight checks failed ({mode}). Aborting.")
             return 2
         if args.preflight_only:
             logger.info("Preflight completed with no blockers. Exiting by request.")

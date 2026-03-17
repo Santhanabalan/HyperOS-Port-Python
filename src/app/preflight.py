@@ -21,6 +21,7 @@ class PreflightFinding:
     code: str
     message: str
     target: str
+    action: str = ""
     details: dict[str, Any] = field(default_factory=dict)
 
 
@@ -38,6 +39,7 @@ class PreflightReport:
         code: str,
         message: str,
         target: str,
+        action: str = "",
         details: dict[str, Any] | None = None,
     ) -> None:
         self.findings.append(
@@ -46,6 +48,7 @@ class PreflightReport:
                 code=code,
                 message=message,
                 target=target,
+                action=action,
                 details=details or {},
             )
         )
@@ -72,6 +75,10 @@ class PreflightReport:
     def has_blockers(self) -> bool:
         return bool(self.blockers)
 
+    def has_failures(self, strict: bool = False) -> bool:
+        """Return whether report contains blocking findings for requested strictness."""
+        return bool(self.blockers or (strict and self.risks))
+
 
 def _inspect_zip(path: Path) -> dict[str, bool]:
     """Inspect ZIP contents to detect packaging markers."""
@@ -93,6 +100,7 @@ def _check_input_path(report: PreflightReport, *, path: str | None, label: str) 
             code=f"{label.upper()}_MISSING",
             message=f"{label.capitalize()} input is missing.",
             target=label,
+            action=f"Provide a valid --{label} path.",
         )
         return None
 
@@ -103,6 +111,7 @@ def _check_input_path(report: PreflightReport, *, path: str | None, label: str) 
             code=f"{label.upper()}_NOT_FOUND",
             message=f"{label.capitalize()} path does not exist: {resolved}",
             target=label,
+            action=f"Fix --{label} to point to an existing ROM artifact.",
             details={"path": str(resolved)},
         )
         return None
@@ -122,6 +131,7 @@ def _check_eu_bundle(report: PreflightReport, eu_bundle: str | None) -> None:
             code="EU_BUNDLE_NOT_FOUND",
             message=f"EU bundle does not exist: {bundle_path}",
             target="eu_bundle",
+            action="Fix --eu-bundle path or remove the flag.",
             details={"path": str(bundle_path)},
         )
         return
@@ -132,6 +142,7 @@ def _check_eu_bundle(report: PreflightReport, eu_bundle: str | None) -> None:
             code="EU_BUNDLE_INVALID_ZIP",
             message=f"EU bundle is not a valid ZIP archive: {bundle_path}",
             target="eu_bundle",
+            action="Provide a valid EU bundle ZIP file.",
             details={"path": str(bundle_path)},
         )
         return
@@ -144,6 +155,7 @@ def _check_eu_bundle(report: PreflightReport, eu_bundle: str | None) -> None:
             code="EU_BUNDLE_NO_APK",
             message="EU bundle ZIP contains no APK files.",
             target="eu_bundle",
+            action="Verify bundle packaging and include required APK payloads.",
             details={"path": str(bundle_path)},
         )
 
@@ -178,6 +190,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
             code="WORK_DIR_NOT_WRITABLE",
             message=f"Cannot create or write work directory: {work_dir}",
             target="work_dir",
+            action="Use a writable --work-dir path and retry.",
             details={"error": str(exc)},
         )
 
@@ -194,6 +207,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
                     code=f"{label.upper()}_ROM_TYPE_UNKNOWN",
                     message=f"Could not confidently detect ROM type for {label}.",
                     target=label,
+                    action="Check ROM artifact format (ZIP/payload/super images).",
                     details={"path": str(candidate)},
                 )
             elif candidate.is_file() and zipfile.is_zipfile(candidate):
@@ -203,6 +217,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
                     code=f"{label.upper()}_ZIP_MARKERS",
                     message=f"{label.capitalize()} ZIP markers detected.",
                     target=label,
+                    action="No action required.",
                     details=markers,
                 )
         except Exception as exc:  # pragma: no cover - defensive
@@ -211,6 +226,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
                 code=f"{label.upper()}_ROM_INIT_FAILED",
                 message=f"Failed to initialize ROM package for {label}.",
                 target=label,
+                action="Check archive integrity and supported ROM structure.",
                 details={"error": str(exc)},
             )
 
@@ -220,6 +236,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
             code="STOCK_PORT_SAME_INPUT",
             message="Stock and Port inputs resolve to the same artifact.",
             target="inputs",
+            action="Use different artifacts for --stock and --port unless in official mode.",
             details={"path": str(stock_path)},
         )
 
@@ -229,6 +246,7 @@ def run_preflight(args, is_official_modify: bool, logger: logging.Logger) -> Pre
             code="ROM_TYPE_MISMATCH",
             message="Stock and Port ROM types differ; verify extraction strategy compatibility.",
             target="inputs",
+            action="Confirm cross-type porting intent and compatible extraction strategy.",
             details=detected_types,
         )
 

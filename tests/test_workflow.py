@@ -24,6 +24,7 @@ def make_args(**overrides):
         "show_cache_stats": False,
         "preflight_only": False,
         "skip_preflight": False,
+        "preflight_strict": False,
         "preflight_report": "build/preflight-report.json",
     }
     base.update(overrides)
@@ -89,7 +90,7 @@ def test_execute_porting_returns_two_when_preflight_has_blockers():
         bootstrap.return_value.exit_code = None
         bootstrap.return_value.cache_manager = None
         otatools_manager_cls.return_value.ensure_otatools.return_value = True
-        run_preflight_mock.return_value.has_blockers.return_value = True
+        run_preflight_mock.return_value.has_failures.return_value = True
 
         assert execute_porting(args, logger) == 2
 
@@ -109,7 +110,7 @@ def test_execute_porting_preflight_only_exits_zero_after_success():
         bootstrap.return_value.exit_code = None
         bootstrap.return_value.cache_manager = None
         otatools_manager_cls.return_value.ensure_otatools.return_value = True
-        run_preflight_mock.return_value.has_blockers.return_value = False
+        run_preflight_mock.return_value.has_failures.return_value = False
 
         assert execute_porting(args, logger) == 0
 
@@ -136,7 +137,7 @@ def test_execute_porting_uses_default_phase_list():
         bootstrap.return_value.exit_code = None
         bootstrap.return_value.cache_manager = None
         otatools_manager_cls.return_value.ensure_otatools.return_value = True
-        run_preflight_mock.return_value.has_blockers.return_value = False
+        run_preflight_mock.return_value.has_failures.return_value = False
         resolve_work_paths.return_value = (
             MagicMock(),
             MagicMock(),
@@ -152,3 +153,24 @@ def test_execute_porting_uses_default_phase_list():
 
     run_modification_phases_mock.assert_called_once()
     assert run_modification_phases_mock.call_args.args[1] == DEFAULT_PHASES
+
+
+def test_execute_porting_strict_preflight_treats_risks_as_failures():
+    logger = MagicMock()
+    args = make_args(preflight_strict=True)
+
+    with (
+        patch("src.app.workflow.initialize_cache_manager") as bootstrap,
+        patch("src.app.workflow.log_run_configuration"),
+        patch("src.app.workflow.OtaToolsManager") as otatools_manager_cls,
+        patch("src.app.workflow.resolve_remote_inputs"),
+        patch("src.app.workflow.run_preflight") as run_preflight_mock,
+        patch("src.app.workflow.save_preflight_report"),
+    ):
+        bootstrap.return_value.exit_code = None
+        bootstrap.return_value.cache_manager = None
+        otatools_manager_cls.return_value.ensure_otatools.return_value = True
+        run_preflight_mock.return_value.has_failures.return_value = True
+
+        assert execute_porting(args, logger) == 2
+        run_preflight_mock.return_value.has_failures.assert_called_once_with(strict=True)
