@@ -3,12 +3,23 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Union
+from typing import List, Union
 
-if TYPE_CHECKING:
-    from .package import RomPackage
+
+def _natural_sort_key(path: Path) -> List[Union[int, str]]:
+    """Generate a natural sort key for file paths.
+
+    Splits filename into numeric and non-numeric parts for proper ordering.
+    E.g., super.img.10 sorts after super.img.2, not before.
+    """
+
+    def convert(text: str) -> Union[int, str]:
+        return int(text) if text.isdigit() else text.lower()
+
+    return [convert(c) for c in re.split(r"(\d+)", path.name)]
 
 
 def compute_file_hash(file_path: Path) -> str:
@@ -56,7 +67,7 @@ def process_sparse_images(images_dir: Path, logger: logging.Logger, shell) -> No
         logger.info("Using simg2img from system PATH")
 
     # 1. Handle super.img
-    super_chunks = sorted(list(images_dir.glob("super.img.*")))
+    super_chunks = sorted(list(images_dir.glob("super.img.*")), key=_natural_sort_key)
     target_super = images_dir / "super.img"
 
     if super_chunks:
@@ -82,7 +93,7 @@ def process_sparse_images(images_dir: Path, logger: logging.Logger, shell) -> No
                 os.unlink(temp_raw)
 
     # 2. Handle cust.img
-    cust_chunks = sorted(list(images_dir.glob("cust.img.*")))
+    cust_chunks = sorted(list(images_dir.glob("cust.img.*")), key=_natural_sort_key)
     target_cust = images_dir / "cust.img"
 
     if cust_chunks:
@@ -113,7 +124,7 @@ def load_single_prop_file(
         logger: Logger instance for output.
     """
     try:
-        rel_path = file_path.relative_to(extracted_dir)
+        rel_path = str(file_path.relative_to(extracted_dir))
     except ValueError:
         rel_path = file_path.name
 

@@ -1,27 +1,36 @@
 from __future__ import annotations
 
-import shutil
-import logging
 import concurrent.futures
+import logging
 import subprocess
 from pathlib import Path
-import platform
-from types import SimpleNamespace
-from typing import Optional, Dict, List, Union, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 from src.core.rom import RomPackage
-from src.utils.sync_engine import ROMSyncEngine
+from src.core.rom_metadata import populate_rom_metadata
+from src.core.tooling import resolve_tooling
+from src.core.workspace import (
+    build_partition_layout,
+    copy_firmware_images,
+    install_partition,
+    prepare_target_directories,
+)
 from src.utils.shell import ShellRunner
+from src.utils.sync_engine import ROMSyncEngine
 
 if TYPE_CHECKING:
-    pass  # For future type imports
+    from src.core.cache_manager import PortRomCacheManager
 
 
 class PortingContext:
     """Context class for managing ROM porting operations."""
 
     def __init__(
-        self, stock_rom: RomPackage, port_rom: RomPackage, target_work_dir: Union[str, Path], is_official_modify: bool = False
+        self,
+        stock_rom: RomPackage,
+        port_rom: RomPackage,
+        target_work_dir: Union[str, Path],
+        is_official_modify: bool = False,
     ) -> None:
         self.stock: RomPackage = stock_rom
         self.port: RomPackage = port_rom
@@ -38,64 +47,28 @@ class PortingContext:
         self.syncer: ROMSyncEngine = ROMSyncEngine(self, logging.getLogger("SyncEngine"))
         self.shell: ShellRunner = ShellRunner()
         self.enable_ksu: bool = False
+        self.cache_manager: PortRomCacheManager | None = None
+        self.device_config: dict[str, Any] = {}
+        self.eu_bundle: str | None = None
+        self.base_android_version: str = "0"
+        self.port_android_version: str = "0"
+        self.base_android_sdk: str = "0"
+        self.port_android_sdk: str = "0"
+        self.target_rom_version: str = ""
+        self.stock_rom_code: str = "unknown"
+        self.port_rom_code: str = "unknown"
+        self.is_ab_device: bool = False
+        self.security_patch: str = "Unknown"
+        self.is_port_eu_rom: bool = False
+        self.is_port_global_rom: bool = False
 
     def _init_tools(self) -> None:
-        """
-        Auto-detect system environment and set global tool paths.
-        """
-        system: str = platform.system().lower()  # windows, linux, darwin
-        machine: str = platform.machine().lower()  # x86_64, amd64, aarch64, arm64
+        """Resolve platform-specific tooling paths."""
+        resolved_tooling = resolve_tooling(self.project_root, self.logger)
+        self.platform_bin_dir = resolved_tooling.platform_bin_dir
+        self.tools = resolved_tooling.tools
 
-        # 1. Unify architecture name
-        if machine in ["amd64", "x86_64"]:
-            arch: str = "x86_64"
-        elif machine in ["aarch64", "arm64"]:
-            arch = "arm64"
-        else:
-            arch = "x86_64"  # Default fallback
-
-        # 2. Determine platform directory and extension
-        if system == "windows":
-            plat_dir: str = "windows"
-            exe_ext: str = ".exe"
-        elif system == "linux":
-            plat_dir = "linux"
-            exe_ext = ""
-        elif system == "darwin":
-            plat_dir = "macos"
-            exe_ext = ""
-        else:
-            self.logger.warning(f"Unknown system: {system}, defaulting to Linux.")
-            plat_dir = "linux"
-            exe_ext = ""
-
-        # 3. Set platform specific bin directory (e.g. bin/linux/x86_64)
-        self.platform_bin_dir: Path = self.bin_root / plat_dir / arch
-
-        if not self.platform_bin_dir.exists():
-            # Try fallback to bin/linux
-            fallback: Path = self.bin_root / plat_dir
-            if fallback.exists():
-                self.platform_bin_dir = fallback
-
-        self.logger.info(f"Platform Binary Dir: {self.platform_bin_dir}")
-
-        # 4. Define global tools (self.tools)
-        self.tools: SimpleNamespace = SimpleNamespace()
-
-        # >> Native tools
-        self.tools.magiskboot = self.platform_bin_dir / f"magiskboot{exe_ext}"
-        self.tools.aapt2 = self.platform_bin_dir / f"aapt2{exe_ext}"
-
-        # >> Java tools
-        self.tools.apktool_jar = self.bin_root / "apktool" / "apktool_2.12.1.jar"  # Example
-        self.tools.apkeditor_jar = self.bin_root / "APKEditor.jar"
-
-        # Check critical tools
-        if not self.tools.magiskboot.exists():
-            self.logger.warning(f"magiskboot not found at {self.tools.magiskboot}")
-
-    def initialize_target(self) -> None:
+    def initialize_target(self, *, clean_existing: bool = False) -> None:
         """
         Initialize target workspace (Parallel optimized).
         1. Define partition sources (Stock vs Port).
@@ -104,28 +77,8 @@ class PortingContext:
         """
         self.logger.info(f"Initializing Target Workspace at {self.target_dir}")
 
-        # Clean old data (optional)
-        if self.target_dir.exists():
-            shutil.rmtree(self.target_dir)
-            pass
-        self.target_dir.mkdir(parents=True, exist_ok=True)
-        self.target_config_dir.mkdir(parents=True, exist_ok=True)
-        self.repack_images_dir.mkdir(parents=True, exist_ok=True)
-
-        partition_layout: Dict[str, RomPackage] = {
-            # Low-level drivers -> From Stock
-            "vendor": self.stock,
-            "odm": self.stock,
-            "vendor_dlkm": self.stock,
-            "odm_dlkm": self.stock,
-            "system_dlkm": self.stock,
-            # System partitions -> From Port
-            "system": self.port,
-            "system_ext": self.port,
-            "product": self.port,
-            "mi_ext": self.port,
-            "product_dlkm": self.port,
-        }
+        prepare_target_directories(self, clean_existing=clean_existing)
+        partition_layout = build_partition_layout(self)
 
         # Use ThreadPoolExecutor for parallel partition installation
         max_workers: int = 4
@@ -141,238 +94,23 @@ class PortingContext:
                     self.logger.error(f"Partition install failed: {e}")
                     # raise e # Optional
 
-        self._copy_firmware_images(list(partition_layout.keys()))
+        self._copy_firmware_images(list(partition_layout))
 
         self.get_rom_info()
 
         self.logger.info("Target Workspace Initialized.")
 
     def _install_partition(self, part_name: str, source_rom: RomPackage) -> None:
-        """Install partition from source ROM to Target"""
-
-        # 1. Extract source partition
-        src_dir: Optional[Path] = source_rom.extract_partition_to_file(part_name)
-
-        if not src_dir or not src_dir.exists():
-            self.logger.warning(f"Partition {part_name} missing in {source_rom.label}, skipping.")
-            return
-
-        # 2. Copy partition files to target directory
-        dest_dir: Path = self.target_dir / f"{part_name}"
-
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)  # Remove existing directory
-
-        try:
-            # Use cp -a for archive mode and --reflink=auto for CoW optimization
-            cmd: List[str] = ["cp", "-a", "--reflink=auto", str(src_dir), str(dest_dir)]
-            self.shell.run(cmd)
-
-        except Exception as e:
-            # Fallback to shutil if cp fails
-            self.logger.error(f"Native copy failed, falling back to shutil: {e}")
-            try:
-                shutil.copytree(src_dir, dest_dir, symlinks=True, dirs_exist_ok=True)
-            except Exception as e2:
-                self.logger.error(f"Copy failed for {part_name}: {e2}")
-
-        # 3. Copy partition configuration files
-        src_fs: Path
-        src_fc: Path
-        src_fs, src_fc = source_rom.get_config_files(part_name)
-
-        if src_fs.exists():
-            shutil.copy2(src_fs, self.target_config_dir / f"{part_name}_fs_config")
-        else:
-            self.logger.warning(f"Missing fs_config for {part_name} in {source_rom.label}")
-
-        if src_fc.exists():
-            shutil.copy2(src_fc, self.target_config_dir / f"{part_name}_file_contexts")
-        else:
-            self.logger.warning(f"Missing file_contexts for {part_name} in {source_rom.label}")
+        """Install partition from source ROM to target workspace."""
+        install_partition(self, part_name, source_rom)
 
     def _copy_firmware_images(self, exclude_list: List[str]) -> None:
-        """
-        Copy firmware images from Base ROM that don't need modification.
-        Iterate .img files in stock/images/, excluding logical partitions.
-        """
-        self.logger.info("Copying firmware images from Base ROM...")
-
-        # Ensure stock images directory exists
-        if not self.stock.images_dir.exists():
-            self.logger.warning("Stock images directory not found! Firmware copy skipped.")
-            return
-
-        copied_count: int = 0
-        for img_file in self.stock.images_dir.glob("*.img"):
-            part_name: str = img_file.stem  # Get filename without extension (e.g. "xbl")
-
-            # Skip handled partitions, accounting for A/B slots
-            clean_name: str = part_name.replace("_a", "").replace("_b", "")
-
-            if clean_name in exclude_list:
-                continue
-
-            # Remaining files are Firmware (xbl, tz, boot, dtbo, etc.)
-            dest_path: Path = self.repack_images_dir / img_file.name
-
-            self.logger.debug(f"Copying firmware: {img_file.name}")
-            shutil.copy2(img_file, dest_path)
-            copied_count += 1
-
-        self.logger.info(f"Copied {copied_count} firmware images to {self.repack_images_dir}")
+        """Copy firmware images from the stock ROM into the target workspace."""
+        copy_firmware_images(self, exclude_list)
 
     def get_rom_info(self) -> None:
-        """
-        Fetch detailed parameters for Stock and Port ROMs.
-        """
-        self.logger.info("Fetching ROM build props...")
-
-        # 1. Get Android Version
-        # Map: ro.system.build.version.release
-        self.base_android_version: str = (
-            self.stock.get_prop("ro.system.build.version.release")
-            or self.stock.get_prop("ro.build.version.release")
-            or "0"
-        )
-        self.port_android_version: str = (
-            self.port.get_prop("ro.system.build.version.release")
-            or self.port.get_prop("ro.build.version.release")
-            or "0"
-        )
-
-        self.logger.info(
-            f"Android Version: Stock=[{self.base_android_version}], Port=[{self.port_android_version}]"
-        )
-        # 2. Get SDK Version
-        # Base SDK
-        self.base_android_sdk: str = (
-            self.stock.get_prop("ro.vendor.build.version.sdk")
-            or self.stock.get_prop("ro.build.version.sdk")
-            or "0"
-        )
-        self.port_android_sdk: str = (
-            self.port.get_prop("ro.system.build.version.sdk")
-            or self.port.get_prop("ro.build.version.sdk")
-            or "0"
-        )
-
-        self.logger.info(
-            f"SDK Version: Stock=[{self.base_android_sdk}], Port=[{self.port_android_sdk}]"
-        )
-
-        # 3. Calculate ROM Version and Codename Replacement
-        # Base Incremental (Vendor)
-        stock_rom_version_inc: Optional[str] = self.stock.get_prop(
-            "ro.vendor.build.version.incremental"
-        )
-        stock_rom_version_inc = stock_rom_version_inc or ""
-        # Port HyperOS Version (mi_ext)
-        port_mios_version_inc_opt: Optional[str] = self.port.get_prop(
-            "ro.mi.os.version.incremental"
-        ) or self.port.get_prop("ro.build.version.incremental", "")
-        port_mios_version_inc: str = port_mios_version_inc_opt or ""
-
-        if self.is_official_modify:
-            self.logger.info("Official Modification mode: Skipping version replacement.")
-            self.target_rom_version = port_mios_version_inc
-        else:
-            # Port device codename logic (e.g. UNBCNXM -> U)
-            port_device_code_segment: str
-            try:
-                port_parts: List[str] = port_mios_version_inc.split(".")
-                if len(port_parts) >= 5:
-                    port_device_code_segment = port_parts[4]  # e.g. UNBCNXM
-                else:
-                    port_device_code_segment = "UNKNOWN"
-            except Exception:
-                port_device_code_segment = "UNKNOWN"
-
-            # Calculate target prefix (U/V/W)
-            target_prefix: str = "U"  # Default 14
-            if self.port_android_version == "15":
-                target_prefix = "V"
-            elif self.port_android_version == "16":
-                target_prefix = "W"
-
-            # Construct new Base Device Code Segment
-            # Logic: Take 5th segment of stock_rom_version_inc, remove first char, add new prefix
-            # e.g. Base: 1.0.5.0.UMCCNXM -> MCC -> V + MCC = VMCC (if A15)
-            new_base_code_segment: str = port_device_code_segment  # Default: no change
-
-            if stock_rom_version_inc:
-                try:
-                    base_parts: List[str] = stock_rom_version_inc.split(".")
-                    if len(base_parts) >= 5:
-                        base_segment_raw: str = base_parts[4]  # UMCCNXM
-                        # cut -c 2- (remove first char)
-                        suffix: str = base_segment_raw[1:]
-                        new_base_code_segment = f"{target_prefix}{suffix}"
-                except Exception:
-                    pass
-
-            # Generate final version
-            if "DEV" in port_mios_version_inc:
-                self.logger.warning("Dev ROM detected, skipping codename replacement.")
-                self.target_rom_version: str = port_mios_version_inc
-            else:
-                if port_device_code_segment != "UNKNOWN":
-                    self.target_rom_version = port_mios_version_inc.replace(
-                        port_device_code_segment, new_base_code_segment
-                    )
-                else:
-                    self.target_rom_version = port_mios_version_inc
-
-        self.logger.info(
-            f"ROM Version: Stock=[{stock_rom_version_inc}], Target=[{self.target_rom_version}]"
-        )
-
-        # 4. Get Device Code
-        # Base: Scan product/etc/device_features/*.xml
-        try:
-            base_feat_dir: Path = self.stock.extracted_dir / "product/etc/device_features"
-            # Get first xml file name
-            xml_file: Path = next(base_feat_dir.glob("*.xml"))
-            self.stock_rom_code: str = xml_file.stem  # Filename without extension
-        except StopIteration:
-            # Fallback to prop if xml not found
-            self.stock_rom_code = self.stock.get_prop("ro.product.vendor.device") or "unknown"
-        except Exception as e:
-            self.logger.warning(f"Error detecting base rom code: {e}")
-            self.stock_rom_code = "unknown"
-
-        # Port: ro.product.product.name
-        self.port_rom_code: str = self.port.get_prop("ro.product.product.name") or "unknown"
-
-        self.logger.info(f"Device Code: Stock=[{self.stock_rom_code}], Port=[{self.port_rom_code}]")
-
-        # 5. AB Partition Check
-        # Check Stock vendor for AB property
-        ab_prop: Optional[str] = self.stock.get_prop("ro.build.ab_update")
-        if ab_prop and ab_prop.lower() == "true":
-            self.is_ab_device: bool = True
-        else:
-            self.is_ab_device = False
-
-        self.logger.info(f"Is AB Device: {self.is_ab_device}")
-
-        # 6. Get Security Patch
-        self.security_patch: str = (
-            self.port.get_prop("ro.build.version.security_patch")
-            or self.stock.get_prop("ro.build.version.security_patch")
-            or "Unknown"
-        )
-        self.logger.info(f"Security Patch: {self.security_patch}")
-
-        # 7. EU ROM Detection
-        # Check filename or ro.build.host
-        build_host: Optional[str] = self.port.get_prop("ro.build.host", "")
-        if "xiaomi.eu" in self.port.path.name.lower() or "xiaomi.eu" in (build_host or "").lower():
-            self.is_port_eu_rom: bool = True
-        else:
-            self.is_port_eu_rom = False
-
-        self.logger.info(f"Is Port EU ROM: {self.is_port_eu_rom}")
+        """Fetch detailed parameters for stock and port ROMs."""
+        populate_rom_metadata(self)
 
     def get_target_prop_file(self, part_name: str) -> Optional[Path]:
         """
@@ -420,24 +158,18 @@ class PortingContext:
             dict with 'files' and 'packages' counts
         """
         # 1. Build name cache
-        if (
-            force
-            or not hasattr(self.syncer, "_target_rom_cache")
-            or not self.syncer._target_rom_cache
-        ):
+        rom_cache = self.syncer._get_rom_cache(self.target_dir)
+        if force or not rom_cache:
             # Force build by passing target_dir
             self.syncer.find_apk_by_name("dummy.apk", self.target_dir)
 
         # 2. Build package cache
-        if (
-            force
-            or not hasattr(self.syncer, "_target_package_cache")
-            or not self.syncer._target_package_cache
-        ):
+        package_cache = self.syncer._get_package_cache(self.target_dir)
+        if force or not package_cache:
             # Force build by passing target_dir
             self.syncer.find_apk_by_package("dummy.package", self.target_dir)
 
-        return self.syncer.get_apk_cache_stats()
+        return cast(dict[str, int], self.syncer.get_apk_cache_stats())
 
     def _get_apk_package_name(self, apk_path: Path) -> Optional[str]:
         """
@@ -478,7 +210,7 @@ class PortingContext:
         Returns:
             Path to APK or None if not found
         """
-        return self.syncer.find_apk_by_name(apk_name, self.target_dir)
+        return cast(Optional[Path], self.syncer.find_apk_by_name(apk_name, self.target_dir))
 
     def find_apk_by_package(self, package_name: str) -> Optional[Path]:
         """
@@ -492,10 +224,10 @@ class PortingContext:
         Returns:
             Path to APK or None if not found
         """
-        return self.syncer.find_apk_by_package(package_name, self.target_dir)
+        return cast(Optional[Path], self.syncer.find_apk_by_package(package_name, self.target_dir))
 
     def clear_apk_caches(self) -> None:
         """Clear APK caches to free memory."""
-        self.syncer._target_rom_cache.clear()
-        self.syncer._target_package_cache.clear()
+        self.syncer._rom_caches.clear()
+        self.syncer._package_caches.clear()
         self.logger.debug("APK caches cleared")

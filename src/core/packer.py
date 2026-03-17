@@ -1,17 +1,17 @@
 import concurrent.futures
 import hashlib
-import os
-import math
 import logging
+import os
 import shutil
 import subprocess
 import zipfile
-from pathlib import Path
-from typing import List, Optional, Dict, Union, Any, Tuple
-from src.utils.shell import ShellRunner
-from src.utils.fspatch import patch_fs_config
-from src.utils.contextpatch import ContextPatcher
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from src.utils.contextpatch import ContextPatcher
+from src.utils.fspatch import patch_fs_config
+from src.utils.shell import ShellRunner
 
 
 class Repacker:
@@ -437,7 +437,7 @@ class Repacker:
         final_zip_path: Path = self.out_dir / final_zip_name
 
         with zipfile.ZipFile(final_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(out_path):
+            for root, _dirs, files in os.walk(out_path):
                 for file in files:
                     file_path = Path(root) / file
                     arcname = file_path.relative_to(out_path)
@@ -730,7 +730,7 @@ class Repacker:
             9663676416: ["FUXI", "NUWA", "ISHTAR", "MARBLE", "SOCRATES", "BABYLON"],
             9122611200: ["SUNSTONE"],
             11811160064: ["YUDI"],
-            13411287040: ["PUDDING", "NEZHA"],
+            13411287040: ["PANDORA", "POPSICLE", "PUDDING", "NEZHA"],
         }
         for size, devices in size_map.items():
             if device_code in devices:

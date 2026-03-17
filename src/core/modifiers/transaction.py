@@ -6,14 +6,13 @@ This module provides transaction-like semantics for plugin execution:
 - Transaction context managers
 - Modification tracking
 """
-import os
-import shutil
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

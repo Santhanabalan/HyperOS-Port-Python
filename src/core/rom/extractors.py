@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
-import zipfile
 import sys
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
@@ -126,23 +125,26 @@ def extract_fastboot(
     # Zip mode logic
     with zipfile.ZipFile(package.path, "r") as z:
         for f in z.namelist():
+            is_super_img = False
             if f.endswith("super.img") or f.endswith("images/super.img"):
-                pass
+                is_super_img = True
             elif "images/super.img." in f or f.startswith("super.img."):
                 # xiaomi.eu ROMs with split sparse super images (e.g., super.img.0, super.img.1)
-                pass
+                is_super_img = True
             elif not f.endswith(".img"):
                 continue
 
             part_name = Path(f).stem
-            if partitions and part_name not in partitions:
+            # Skip if partitions filter is active, but always extract super.img chunks
+            # super.img chunks are needed for lpunpack to extract logical partitions
+            if partitions and not is_super_img and part_name not in partitions:
                 continue
 
             package.logger.info(f"Extracting {f}...")
             source = z.open(f)
-            target = open(package.images_dir / Path(f).name, "wb")
-            with source, target:
-                shutil.copyfileobj(source, target)
+            target_file = open(package.images_dir / Path(f).name, "wb")
+            with source, target_file:
+                shutil.copyfileobj(source, target_file)
 
         from .utils import process_sparse_images
 
@@ -160,38 +162,32 @@ def extract_fastboot(
                         f"[{package.label}] Unpacking specific partitions: {partitions}"
                     )
                     for part in partitions:
-                        # Try standard lpunpack first
-                        success = True
+                        part_a = f"{part}_a"
                         try:
-                            cmd = ["lpunpack", "-p", part, str(super_img), str(package.images_dir)]
-                            package.shell.run(cmd)
-                        except Exception:
-                            package.logger.warning(f"[{package.label}] lpunpack failed for {part}, trying lpunpack.py...")
-                            try:
-                                cmd_py = [sys.executable, "src/utils/lpunpack.py", "-p", part, str(super_img), str(package.images_dir)]
-                                package.shell.run(cmd_py)
-                            except Exception as e:
-                                package.logger.error(f"[{package.label}] lpunpack.py also failed for {part}: {e}")
-                                success = False
-
-                        if success:
-                            # Try suffix _a if needed (for AB devices)
-                            try:
-                                cmd_a = ["lpunpack", "-p", f"{part}_a", str(super_img), str(package.images_dir)]
-                                package.shell.run(cmd_a)
-                            except Exception:
-                                # Not always an error if _a doesn't exist
-                                pass
+                            cmd_py = [
+                                sys.executable,
+                                "src/utils/lpunpack.py",
+                                "-p",
+                                part_a,
+                                str(super_img),
+                                str(package.images_dir),
+                            ]
+                            package.shell.run(cmd_py)
+                        except Exception as e:
+                            package.logger.warning(
+                                f"[{package.label}] Failed to extract {part_a}: {e}"
+                            )
                 else:
                     package.logger.info(
                         f"[{package.label}] Unpacking ALL partitions from super.img..."
                     )
-                    try:
-                        package.shell.run(["lpunpack", str(super_img), str(package.images_dir)])
-                    except Exception:
-                        package.logger.warning(f"[{package.label}] lpunpack failed, trying lpunpack.py...")
-                        cmd_py = [sys.executable, "src/utils/lpunpack.py", str(super_img), str(package.images_dir)]
-                        package.shell.run(cmd_py)
+                    cmd_py = [
+                        sys.executable,
+                        "src/utils/lpunpack.py",
+                        str(super_img),
+                        str(package.images_dir),
+                    ]
+                    package.shell.run(cmd_py)
 
             except Exception as e:
                 package.logger.error(f"Failed to unpack super.img: {e}")
@@ -209,17 +205,21 @@ def extract_fastboot(
                     if img.stat().st_size == 0:
                         os.remove(img)
                         continue
-                    
+
                     base_name = img.name.replace(suffix, ".img")
-                    target = img.with_name(base_name)
-                    
-                    if not target.exists():
-                        img.rename(target)
-                        package.logger.info(f"[{package.label}] Normalized partition name: {img.name} -> {base_name}")
+                    target_img = img.with_name(base_name)
+
+                    if not target_img.exists():
+                        img.rename(target_img)
+                        package.logger.info(
+                            f"[{package.label}] Normalized partition name: {img.name} -> {base_name}"
+                        )
                     else:
-                        # If target already exists, and the current one is just another slot, 
+                        # If target already exists, and the current one is just another slot,
                         # we keep the one already there (usually _a was processed first)
-                        package.logger.debug(f"[{package.label}] Skipping {img.name} as {base_name} already exists.")
+                        package.logger.debug(
+                            f"[{package.label}] Skipping {img.name} as {base_name} already exists."
+                        )
                         os.remove(img)
 
 

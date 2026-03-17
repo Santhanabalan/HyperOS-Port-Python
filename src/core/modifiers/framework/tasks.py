@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 from src.core.modifiers.framework.base import FrameworkModifierBase
 from src.core.modifiers.framework.patches import (
-    RETRUN_TRUE,
-    RETRUN_FALSE,
     INVOKE_TRUE,
     MY_PLATFORM_KEY,
+    RETRUN_FALSE,
+    RETRUN_TRUE,
 )
 
 if TYPE_CHECKING:
@@ -29,6 +29,13 @@ class FrameworkTasks(FrameworkModifierBase):
         """Modify miui-services.jar for EU ROM compatibility."""
         jar_path = self._find_file(self.ctx.target_dir, "miui-services.jar")
         if not jar_path:
+            return
+
+        # Check cache first
+        cached_jar = self._get_cached_jar("miui-services.jar")
+        if cached_jar:
+            self.logger.info("Using cached modified miui-services.jar")
+            shutil.copy2(cached_jar, jar_path)
             return
 
         self.logger.info(f"Modifying {jar_path.name}...")
@@ -106,10 +113,20 @@ class FrameworkTasks(FrameworkModifierBase):
 
         self._apkeditor_build(work_dir, jar_path)
 
+        # Save to cache
+        self._save_jar_cache("miui-services.jar", jar_path)
+
     def _mod_services(self) -> None:
         """Modify services.jar for signature and package verification bypass."""
         jar_path = self._find_file(self.ctx.target_dir, "services.jar")
         if not jar_path:
+            return
+
+        # Check cache first
+        cached_jar = self._get_cached_jar("services.jar")
+        if cached_jar:
+            self.logger.info("Using cached modified services.jar")
+            shutil.copy2(cached_jar, jar_path)
             return
 
         self.logger.info(f"Modifying {jar_path.name}...")
@@ -156,6 +173,9 @@ class FrameworkTasks(FrameworkModifierBase):
         )
 
         self._apkeditor_build(work_dir, jar_path)
+
+        # Save to cache
+        self._save_jar_cache("services.jar", jar_path)
 
     def _mod_framework(self) -> None:
         """Modify framework.jar for signature bypass and PIF injection."""
@@ -330,7 +350,6 @@ class FrameworkTasks(FrameworkModifierBase):
 
     def _inject_hook_helper_methods(self, work_dir: Path) -> None:
         """Inject HookHelper additional methods (AutoCopy)."""
-        import re
 
         hook_helper = self._find_file(work_dir, "HookHelper.smali")
         if not hook_helper:
@@ -683,8 +702,8 @@ class FrameworkTasks(FrameworkModifierBase):
 
         if cil_file.exists():
             try:
-                with open(cil_file, "a", encoding="utf-8") as f:
-                    f.write(policy_line)
+                with open(cil_file, "a", encoding="utf-8") as cil_handle:
+                    cil_handle.write(policy_line)
                 self.logger.info(f"Updated sepolicy: {cil_file.name}")
             except Exception as e:
                 self.logger.warning(f"Failed to append policy to {cil_file}: {e}")
