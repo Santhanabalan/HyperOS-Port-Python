@@ -42,6 +42,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--eu-bundle", help="Path/URL to EU Localization Bundle zip")
     parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Run input preflight checks only, then exit",
+    )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip preflight checks before porting workflow",
+    )
+    parser.add_argument(
+        "--preflight-report",
+        default="build/preflight-report.json",
+        help="Path to write preflight JSON report (default: build/preflight-report.json)",
+    )
+    parser.add_argument(
         "--phases",
         nargs="+",
         help="Specific phases to run: system, apk, framework, firmware, repack (default: all)",

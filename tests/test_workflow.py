@@ -22,6 +22,9 @@ def make_args(**overrides):
         "enable_partition_cache": False,
         "clear_cache": False,
         "show_cache_stats": False,
+        "preflight_only": False,
+        "skip_preflight": False,
+        "preflight_report": "build/preflight-report.json",
     }
     base.update(overrides)
     return Namespace(**base)
@@ -71,6 +74,46 @@ def test_execute_porting_returns_zero_for_show_cache_stats():
     bootstrap.assert_called_once()
 
 
+def test_execute_porting_returns_two_when_preflight_has_blockers():
+    logger = MagicMock()
+    args = make_args()
+
+    with (
+        patch("src.app.workflow.initialize_cache_manager") as bootstrap,
+        patch("src.app.workflow.log_run_configuration"),
+        patch("src.app.workflow.OtaToolsManager") as otatools_manager_cls,
+        patch("src.app.workflow.resolve_remote_inputs"),
+        patch("src.app.workflow.run_preflight") as run_preflight_mock,
+        patch("src.app.workflow.save_preflight_report"),
+    ):
+        bootstrap.return_value.exit_code = None
+        bootstrap.return_value.cache_manager = None
+        otatools_manager_cls.return_value.ensure_otatools.return_value = True
+        run_preflight_mock.return_value.has_blockers.return_value = True
+
+        assert execute_porting(args, logger) == 2
+
+
+def test_execute_porting_preflight_only_exits_zero_after_success():
+    logger = MagicMock()
+    args = make_args(preflight_only=True)
+
+    with (
+        patch("src.app.workflow.initialize_cache_manager") as bootstrap,
+        patch("src.app.workflow.log_run_configuration"),
+        patch("src.app.workflow.OtaToolsManager") as otatools_manager_cls,
+        patch("src.app.workflow.resolve_remote_inputs"),
+        patch("src.app.workflow.run_preflight") as run_preflight_mock,
+        patch("src.app.workflow.save_preflight_report"),
+    ):
+        bootstrap.return_value.exit_code = None
+        bootstrap.return_value.cache_manager = None
+        otatools_manager_cls.return_value.ensure_otatools.return_value = True
+        run_preflight_mock.return_value.has_blockers.return_value = False
+
+        assert execute_porting(args, logger) == 0
+
+
 def test_execute_porting_uses_default_phase_list():
     logger = MagicMock()
     args = make_args()
@@ -80,6 +123,8 @@ def test_execute_porting_uses_default_phase_list():
         patch("src.app.workflow.log_run_configuration"),
         patch("src.app.workflow.OtaToolsManager") as otatools_manager_cls,
         patch("src.app.workflow.resolve_remote_inputs"),
+        patch("src.app.workflow.run_preflight") as run_preflight_mock,
+        patch("src.app.workflow.save_preflight_report"),
         patch("src.app.workflow.resolve_work_paths") as resolve_work_paths,
         patch("src.app.workflow.RomPackage") as rom_package_cls,
         patch("src.app.workflow.PortingContext") as porting_context_cls,
@@ -91,6 +136,7 @@ def test_execute_porting_uses_default_phase_list():
         bootstrap.return_value.exit_code = None
         bootstrap.return_value.cache_manager = None
         otatools_manager_cls.return_value.ensure_otatools.return_value = True
+        run_preflight_mock.return_value.has_blockers.return_value = False
         resolve_work_paths.return_value = (
             MagicMock(),
             MagicMock(),

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from src.app.bootstrap import clean_work_dir, initialize_cache_manager
+from src.app.preflight import run_preflight, save_preflight_report
 from src.core.config_loader import load_device_config
 from src.core.context import PortingContext
 from src.core.modifiers import FirmwareModifier, FrameworkModifier, RomModifier, UnifiedModifier
@@ -146,6 +147,21 @@ def execute_porting(args, logger: logging.Logger) -> int:
         return 1
 
     resolve_remote_inputs(args, is_official_modify, logger)
+
+    if not args.skip_preflight:
+        preflight_report = run_preflight(args, is_official_modify, logger)
+        report_path = save_preflight_report(preflight_report, args.preflight_report)
+        logger.info(f"Preflight report saved to: {report_path}")
+        if preflight_report.has_blockers():
+            logger.error("Preflight checks failed with blockers. Aborting.")
+            return 2
+        if args.preflight_only:
+            logger.info("Preflight completed with no blockers. Exiting by request.")
+            return 0
+    elif args.preflight_only:
+        logger.warning("Ignoring --preflight-only because --skip-preflight is set.")
+        return 0
+
     work_dir, stock_work_dir, port_work_dir, target_work_dir = resolve_work_paths(args.work_dir)
 
     if args.clean:
