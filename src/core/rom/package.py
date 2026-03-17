@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 from src.utils.shell import ShellRunner
 
 from .constants import ANDROID_LOGICAL_PARTITIONS, RomType
-from .extractors import extract_local
 from .utils import compute_file_hash, load_single_prop_file, sort_prop_priority
 
 if TYPE_CHECKING:

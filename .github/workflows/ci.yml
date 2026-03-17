@@ -39,6 +39,9 @@ jobs:
             src/core/props.py \
             src/core/config_loader.py \
             src/core/config_merger.py \
+            src/core/rom/package.py \
+            src/core/rom/extractors.py \
+            src/core/rom/utils.py \
             src/core/rom_metadata.py \
             src/core/tooling.py \
             src/core/workspace.py \

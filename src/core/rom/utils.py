@@ -6,10 +6,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Union
-
-if TYPE_CHECKING:
-    from .package import RomPackage
+from typing import List, Union
 
 
 def _natural_sort_key(path: Path) -> List[Union[int, str]]:
@@ -127,7 +124,7 @@ def load_single_prop_file(
         logger: Logger instance for output.
     """
     try:
-        rel_path = file_path.relative_to(extracted_dir)
+        rel_path = str(file_path.relative_to(extracted_dir))
     except ValueError:
         rel_path = file_path.name
 

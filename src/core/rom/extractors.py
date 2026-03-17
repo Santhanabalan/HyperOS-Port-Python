@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
-import zipfile
 import sys
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
@@ -143,9 +142,9 @@ def extract_fastboot(
 
             package.logger.info(f"Extracting {f}...")
             source = z.open(f)
-            target = open(package.images_dir / Path(f).name, "wb")
-            with source, target:
-                shutil.copyfileobj(source, target)
+            target_file = open(package.images_dir / Path(f).name, "wb")
+            with source, target_file:
+                shutil.copyfileobj(source, target_file)
 
         from .utils import process_sparse_images
 
@@ -208,10 +207,10 @@ def extract_fastboot(
                         continue
 
                     base_name = img.name.replace(suffix, ".img")
-                    target = img.with_name(base_name)
+                    target_img = img.with_name(base_name)
 
-                    if not target.exists():
-                        img.rename(target)
+                    if not target_img.exists():
+                        img.rename(target_img)
                         package.logger.info(
                             f"[{package.label}] Normalized partition name: {img.name} -> {base_name}"
                         )
