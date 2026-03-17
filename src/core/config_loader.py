@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 
 class ConfigMerger:
@@ -13,7 +13,9 @@ class ConfigMerger:
     def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger("ConfigMerger")
 
-    def deep_merge(self, base: dict, override: dict) -> dict:
+    def deep_merge(
+        self, base: dict[str, Any], override: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Deep merge two dictionaries. Override values take precedence.
 
@@ -42,14 +44,20 @@ class ConfigMerger:
 
         return result
 
-    def load_config(self, config_path: Path) -> dict:
+    def load_config(self, config_path: Path) -> dict[str, Any]:
         """Load a single configuration file."""
         if not config_path.exists():
             return {}
 
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                config_data = json.load(f)
+            if isinstance(config_data, dict):
+                return cast(dict[str, Any], config_data)
+            self.logger.error(
+                f"Config root in {config_path} is not an object: {type(config_data).__name__}"
+            )
+            return {}
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse {config_path}: {e}")
             return {}
@@ -57,7 +65,7 @@ class ConfigMerger:
             self.logger.error(f"Failed to load {config_path}: {e}")
             return {}
 
-    def load_device_config(self, device_codename: str) -> dict:
+    def load_device_config(self, device_codename: str) -> dict[str, Any]:
         """
         Load and merge configuration for a specific device.
         Hierarchy: common -> device
@@ -88,7 +96,7 @@ class ConfigMerger:
 
         return merged
 
-    def _log_config_summary(self, config: dict, device_codename: str):
+    def _log_config_summary(self, config: dict[str, Any], device_codename: str):
         """Log configuration summary."""
         wild_boost = config.get("wild_boost", {})
         pack = config.get("pack", {})
@@ -105,7 +113,7 @@ class ConfigMerger:
 
 def load_device_config(
     device_codename: str, logger: Optional[logging.Logger] = None
-) -> dict:
+) -> dict[str, Any]:
     """
     Convenience function to create a new ConfigMerger and load device configuration.
     This avoids the global singleton and ties configuration to the specific task context.
@@ -122,13 +130,13 @@ def load_device_config(
 
 
 # Maintain backward compatibility while moving to per-task configuration
-# Global registry for task-specific merers
-_config_merger_instances_registry = {}  # Per-task configmerger instances
+# Global registry for task-specific mergers
+_config_merger_instances_registry: dict[str, ConfigMerger] = {}
 
 
 def load_device_config_with_context(
     task_context: str, device_codename: str, logger: Optional[logging.Logger] = None
-) -> dict:
+) -> dict[str, Any]:
     """
     Load device configuration for a specific task context to avoid cross-contamination.
 
@@ -142,6 +150,7 @@ def load_device_config_with_context(
     """
     # Create a new ConfigMerger instance for the specific context to avoid conflicts
     merger = ConfigMerger(logger)
+    _config_merger_instances_registry[task_context] = merger
     return merger.load_device_config(device_codename)
 
 

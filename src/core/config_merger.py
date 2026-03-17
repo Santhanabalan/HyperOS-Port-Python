@@ -5,9 +5,9 @@ Supports append, override, remove strategies and dependency resolution.
 
 import json
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,9 @@ class ConfigMerger:
         else:
             getattr(logger, level, logger.info)(message)
 
-    def merge(self, base: Dict[str, Any], extra: Dict[str, Any], path: str = "") -> Dict[str, Any]:
+    def merge(
+        self, base: Dict[str, Any], extra: Dict[str, Any], path: str = ""
+    ) -> Dict[str, Any]:
         """
         Merge two configurations with strategy support.
 
@@ -161,9 +163,6 @@ class ConfigMerger:
                     result.append(item)
             return result
 
-        elif isinstance(base, dict) and isinstance(extra, dict):
-            return self.merge(base, extra, path)
-
         # For primitives, extra overrides base
         return extra
 
@@ -195,7 +194,7 @@ class ConfigMerger:
             if extra_item.get("merge_strategy") == self.MERGE_STRATEGY_REMOVE:
                 if description and description in desc_to_index:
                     idx = desc_to_index[description]
-                    removed = result.pop(idx)
+                    result.pop(idx)
                     self.report.removed_items.append(f"{path}[{description}]")
                     self._log("debug", f"Removed from {path}: {description}")
 
@@ -242,7 +241,7 @@ class ConfigMerger:
             Tuple of (merged_config, merge_report)
         """
         self.report = MergeReport()
-        config = {}
+        config: Dict[str, Any] = {}
 
         for p in paths:
             file_path = p / filename
@@ -291,19 +290,33 @@ class ConfigMerger:
             ConfigMergeError: If circular dependencies are detected
         """
         # Build dependency graph
-        id_to_rule = {}
+        id_to_rule: Dict[str, Dict[str, Any]] = {}
         for rule in rules:
             rule_id = rule.get("id")
-            if rule_id:
+            if isinstance(rule_id, str) and rule_id:
                 id_to_rule[rule_id] = rule
 
         # Find rules with dependencies
-        has_deps = set()
+        has_deps: Set[str] = set()
         dep_graph: Dict[str, Set[str]] = {}
 
         for rule in rules:
-            rule_id = rule.get("id", id(rule))  # Use id() as fallback
-            depends_on = rule.get("depends_on", [])
+            raw_rule_id = rule.get("id")
+            rule_id = (
+                raw_rule_id
+                if isinstance(raw_rule_id, str) and raw_rule_id
+                else str(id(rule))
+            )
+            raw_depends_on = rule.get("depends_on", [])
+            depends_on = (
+                [
+                    dep
+                    for dep in raw_depends_on
+                    if isinstance(dep, str)
+                ]
+                if isinstance(raw_depends_on, list)
+                else []
+            )
 
             if depends_on:
                 has_deps.add(rule_id)
@@ -314,7 +327,14 @@ class ConfigMerger:
 
         # Topological sort using Kahn's algorithm
         # Calculate in-degree
-        in_degree: Dict[str, int] = {rule.get("id", id(rule)): 0 for rule in rules}
+        in_degree: Dict[str, int] = {
+            (
+                rule_id
+                if isinstance(rule_id := rule.get("id"), str) and rule_id
+                else str(id(rule))
+            ): 0
+            for rule in rules
+        }
 
         for rule_id, deps in dep_graph.items():
             for dep in deps:
@@ -338,13 +358,13 @@ class ConfigMerger:
             current = queue.pop(0)
 
             # Find the actual rule
-            rule = id_to_rule.get(current)
-            if rule:
-                result.append(rule)
+            resolved_rule = id_to_rule.get(current)
+            if resolved_rule is not None:
+                result.append(resolved_rule)
             else:
                 # Rule without id
                 for r in rules:
-                    if id(r) == current and r not in result:
+                    if str(id(r)) == current and r not in result:
                         result.append(r)
                         break
 
