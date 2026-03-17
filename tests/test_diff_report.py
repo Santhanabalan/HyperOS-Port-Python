@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+import src.app.diff_report as diff_report
 from src.app.diff_report import collect_artifact_state, generate_diff_report
 
 
@@ -35,3 +36,24 @@ def test_generate_diff_report_tracks_file_and_prop_changes(tmp_path: Path):
         flag["code"] == "IDENTITY_PROP_CHANGED"
         for flag in report["highlights"]["risk_flags"]
     )
+
+
+def test_collect_artifact_state_hashes_each_file_once(tmp_path: Path, monkeypatch):
+    target = tmp_path / "target"
+    (target / "system").mkdir(parents=True)
+    (target / "system" / "build.prop").write_text("ro.product.name=device_a\n", encoding="utf-8")
+    (target / "system" / "app.apk").write_bytes(b"apk-bytes")
+    (target / "system" / "plain.txt").write_text("hello", encoding="utf-8")
+
+    hash_calls: list[str] = []
+    original_sha = diff_report._sha256
+
+    def counting_sha256(path: Path) -> str:
+        hash_calls.append(str(path.relative_to(target)))
+        return original_sha(path)
+
+    monkeypatch.setattr(diff_report, "_sha256", counting_sha256)
+    state = collect_artifact_state(target, logger=logging.getLogger("test"))
+
+    assert sorted(hash_calls) == ["system/app.apk", "system/build.prop", "system/plain.txt"]
+    assert "system/app.apk" in state["apks"]
