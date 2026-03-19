@@ -1,0 +1,30 @@
+[
+  {
+    "hwc": "CN",
+    "basic": {
+      "cpu": "Snapdragon 8 Elite Gen 5",
+      "battery": "7000mAh",
+      "camera": "50MP+50MP+50MP",
+      "screen": "6.3″ AMOLED",
+      "resolution": "2656×1220"
+    },
+    "camera": {
+      "front_camera": "50MP",
+      "rear_camera": "50MP+50MP+50MP"
+    }
+  },
+  {
+    "hwc": ["GL","IN"],
+    "basic": {
+      "cpu": "Snapdragon 8 Elite Gen 5",
+      "battery": "6330mAh",
+      "camera": "50MP+50MP+50MP",
+      "screen": "6.3″ AMOLED",
+      "resolution": "2656×1220"
+    },
+    "camera": {
+      "front_camera": "50MP",
+      "rear_camera": "50MP+50MP+50MP"
+    }
+  }
+]
