@@ -44,8 +44,17 @@ class RomModifier(BaseModifier):
         
         self._apply_common_overrides()
 
-        override_dir = Path(f"devices/{self.ctx.stock_rom_code}/override/{self.ctx.port_android_version}")
-        self.ctx.syncer.apply_override(override_dir, self.target_rom_img)
+        # Apply device-specific general overrides first (if exists)
+        general_override_dir = Path(f"devices/{self.ctx.stock_rom_code}/override/general")
+        if general_override_dir.exists():
+            self.logger.info(f"Applying general overrides from {general_override_dir}...")
+            self.ctx.syncer.apply_override(general_override_dir, self.target_rom_img)
+
+        # Apply version-specific overrides (higher priority)
+        version_override_dir = Path(
+            f"devices/{self.ctx.stock_rom_code}/override/{self.ctx.port_android_version}"
+        )
+        self.ctx.syncer.apply_override(version_override_dir, self.target_rom_img)
 
     def _apply_common_overrides(self):
         """Apply common overrides based on conditions (e.g., OS version)."""
