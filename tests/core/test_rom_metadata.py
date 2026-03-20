@@ -19,7 +19,7 @@ def make_mock_rom(tmp_path: Path, name: str, props: dict[str, str]):
     return rom
 
 
-def test_populate_rom_metadata_marks_global_ports_as_eu_compatible(tmp_path):
+def test_populate_rom_metadata_distinguishes_global_and_eu_ports(tmp_path):
     stock_xml = tmp_path / "stock" / "product/etc/device_features"
     stock_xml.mkdir(parents=True)
     (stock_xml / "fuxi.xml").write_text("<xml />")
@@ -62,7 +62,7 @@ def test_populate_rom_metadata_marks_global_ports_as_eu_compatible(tmp_path):
     assert ctx.target_rom_version == "2.0.1.0.VMCCNXM"
     assert ctx.is_ab_device is True
     assert ctx.is_port_global_rom is True
-    assert ctx.is_port_eu_rom is True
+    assert ctx.is_port_eu_rom is False
     assert ctx.security_patch == "2025-02-01"
 
 
@@ -98,3 +98,39 @@ def test_populate_rom_metadata_keeps_dev_rom_version_for_dev_builds(tmp_path):
     populate_rom_metadata(ctx)
 
     assert ctx.target_rom_version == "2.0.0.0.DEV.VNBCNXM"
+
+
+def test_populate_rom_metadata_treats_xiaomi_eu_mod_device_as_eu_not_global(tmp_path):
+    stock = make_mock_rom(
+        tmp_path,
+        "stock",
+        {
+            "ro.build.version.release": "14",
+            "ro.build.version.sdk": "34",
+            "ro.vendor.build.version.incremental": "1.0.5.0.UMCCNXM",
+            "ro.product.vendor.device": "fuxi",
+        },
+    )
+    port = make_mock_rom(
+        tmp_path,
+        "port",
+        {
+            "ro.build.version.release": "15",
+            "ro.build.version.sdk": "35",
+            "ro.mi.os.version.incremental": "2.0.1.0.VNBCNXM",
+            "ro.product.product.name": "vermeer",
+            "ro.product.mod_device": "xiaomi.eu_vermeer_global",
+        },
+    )
+
+    ctx = SimpleNamespace(
+        stock=stock,
+        port=port,
+        is_official_modify=False,
+        logger=logging.getLogger("test"),
+    )
+
+    populate_rom_metadata(ctx)
+
+    assert ctx.is_port_eu_rom is True
+    assert ctx.is_port_global_rom is False

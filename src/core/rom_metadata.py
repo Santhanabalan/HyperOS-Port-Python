@@ -90,13 +90,14 @@ def populate_rom_metadata(ctx: "PortingContext") -> None:
 
     build_host = ctx.port.get_prop("ro.build.host", "")
     mod_device = ctx.port.get_prop("ro.product.mod_device", "")
+    mod_device_lower = (mod_device or "").lower()
+
     ctx.is_port_eu_rom = (
         "xiaomi.eu" in ctx.port.path.name.lower()
         or "xiaomi.eu" in (build_host or "").lower()
+        or "xiaomi.eu" in mod_device_lower
     )
-    ctx.is_port_global_rom = bool(mod_device and "_global" in mod_device)
-    if ctx.is_port_global_rom and not ctx.is_port_eu_rom:
-        ctx.is_port_eu_rom = True
+    ctx.is_port_global_rom = "_global" in mod_device_lower and "xiaomi.eu" not in mod_device_lower
 
     ctx.logger.info(
         f"Is Port EU ROM: {ctx.is_port_eu_rom}, Global ROM: {ctx.is_port_global_rom}"
