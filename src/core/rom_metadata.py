@@ -98,9 +98,13 @@ def populate_rom_metadata(ctx: "PortingContext") -> None:
         or "xiaomi.eu" in mod_device_lower
     )
     ctx.is_port_global_rom = "_global" in mod_device_lower and "xiaomi.eu" not in mod_device_lower
+    ctx.port_global_region = _detect_port_global_region(mod_device_lower, ctx.is_port_eu_rom)
 
     ctx.logger.info(
-        f"Is Port EU ROM: {ctx.is_port_eu_rom}, Global ROM: {ctx.is_port_global_rom}"
+        "Is Port EU ROM: %s, Global ROM: %s, Global Region: %s",
+        ctx.is_port_eu_rom,
+        ctx.is_port_global_rom,
+        ctx.port_global_region or "none",
     )
 
 
@@ -151,3 +155,25 @@ def _detect_stock_rom_code(ctx: "PortingContext") -> str:
     except Exception as exc:
         ctx.logger.warning(f"Error detecting base rom code: {exc}")
         return "unknown"
+
+
+def _detect_port_global_region(mod_device_lower: str, is_port_eu_rom: bool) -> str:
+    if is_port_eu_rom or not mod_device_lower:
+        return ""
+
+    region_suffix_map = (
+        ("_lm_cr_global", "lm_cr"),
+        ("_eea_global", "eea"),
+        ("_ru_global", "ru"),
+        ("_id_global", "id"),
+        ("_tr_global", "tr"),
+        ("_tw_global", "tw"),
+        ("_in_global", "in"),
+        ("_global", "global"),
+    )
+
+    for suffix, region in region_suffix_map:
+        if mod_device_lower.endswith(suffix):
+            return region
+
+    return ""

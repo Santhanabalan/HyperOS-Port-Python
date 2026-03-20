@@ -63,6 +63,7 @@ def test_populate_rom_metadata_distinguishes_global_and_eu_ports(tmp_path):
     assert ctx.is_ab_device is True
     assert ctx.is_port_global_rom is True
     assert ctx.is_port_eu_rom is False
+    assert ctx.port_global_region == "global"
     assert ctx.security_patch == "2025-02-01"
 
 
@@ -134,3 +135,54 @@ def test_populate_rom_metadata_treats_xiaomi_eu_mod_device_as_eu_not_global(tmp_
 
     assert ctx.is_port_eu_rom is True
     assert ctx.is_port_global_rom is False
+    assert ctx.port_global_region == ""
+
+
+def test_populate_rom_metadata_detects_global_region_variants(tmp_path):
+    stock = make_mock_rom(
+        tmp_path,
+        "stock",
+        {
+            "ro.build.version.release": "14",
+            "ro.build.version.sdk": "34",
+            "ro.vendor.build.version.incremental": "1.0.5.0.UMCCNXM",
+            "ro.product.vendor.device": "fuxi",
+        },
+    )
+
+    cases = (
+        ("pudding_global", "global"),
+        ("pudding_eea_global", "eea"),
+        ("pudding_ru_global", "ru"),
+        ("pudding_in_global", "in"),
+        ("pudding_id_global", "id"),
+        ("pudding_tr_global", "tr"),
+        ("pudding_lm_cr_global", "lm_cr"),
+        ("pudding_tw_global", "tw"),
+    )
+
+    for mod_device, expected_region in cases:
+        port = make_mock_rom(
+            tmp_path,
+            f"port_{expected_region}",
+            {
+                "ro.build.version.release": "15",
+                "ro.build.version.sdk": "35",
+                "ro.mi.os.version.incremental": "2.0.1.0.VNBCNXM",
+                "ro.product.product.name": "vermeer",
+                "ro.product.mod_device": mod_device,
+            },
+        )
+
+        ctx = SimpleNamespace(
+            stock=stock,
+            port=port,
+            is_official_modify=False,
+            logger=logging.getLogger("test"),
+        )
+
+        populate_rom_metadata(ctx)
+
+        assert ctx.is_port_global_rom is True
+        assert ctx.is_port_eu_rom is False
+        assert ctx.port_global_region == expected_region
