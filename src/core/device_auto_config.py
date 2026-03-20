@@ -339,7 +339,7 @@ def auto_configure_device(
                 device_code = fallback_device_code
                 payload_info = PayloadDumperOutput()
             else:
-                raise RuntimeError(f"Could not determine device code: {e}")
+                raise RuntimeError(f"Could not determine device code: {e}") from e
 
     auto_config = DeviceAutoConfig(device_code, payload_info, stock_props)
     return auto_config.setup_device()
