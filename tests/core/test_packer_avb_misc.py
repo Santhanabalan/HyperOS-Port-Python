@@ -7,6 +7,8 @@ from src.core.packer import Repacker, parse_avbtool_info_output
 
 def test_parse_avbtool_info_output_extracts_chain_and_descriptors() -> None:
     output = """
+Image size:               1048576 bytes
+Original image size:      32 bytes
 Algorithm:                SHA256_RSA4096
 Rollback Index:           1767225600
 Flags:                    1
@@ -26,12 +28,63 @@ Descriptors:
 """
     parsed = parse_avbtool_info_output(output)
 
+    assert parsed["image_size"] == 1048576
+    assert parsed["original_image_size"] == 32
     assert parsed["algorithm"] == "SHA256_RSA4096"
     assert parsed["rollback_index"] == 1767225600
     assert parsed["flags"] == 1
     assert parsed["chain_partitions"] == [("boot", 3), ("recovery", 1)]
     assert parsed["hash_partitions"] == ["dtbo"]
     assert parsed["hashtree_partitions"] == ["system", "system_ext"]
+
+
+def test_sync_partition_info_from_stock_avb(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    device_dir = tmp_path / "devices/pudding"
+    device_dir.mkdir(parents=True)
+    (device_dir / "partition_info.json").write_text(
+        (
+            "{\n"
+            '  "device_code": "pudding",\n'
+            '  "super_size": 13411287040,\n'
+            '  "dynamic_partitions": ["system", "vendor"]\n'
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    stock = tmp_path / "build/stockrom/images"
+    stock.mkdir(parents=True)
+    (stock / "boot.img").write_bytes(b"x")
+    (stock / "pvmfw.img").write_bytes(b"x")
+    (stock / "vbmeta.img").write_bytes(b"x")
+
+    ctx = SimpleNamespace(
+        stock_rom_code="pudding",
+        device_config={"pack": {"super_size": 13411287040}},
+    )
+    repacker = Repacker(ctx)
+
+    profile = {
+        "hash_parts": {"boot", "pvmfw"},
+        "hashtree_parts": {"system"},
+        "chain_parts": [("boot", 3)],
+    }
+
+    def fake_info(_avbtool, image):  # type: ignore[no-untyped-def]
+        if image.name == "boot.img":
+            return {"image_size": 100663296}
+        if image.name == "pvmfw.img":
+            return {"image_size": 1048576}
+        return {}
+
+    monkeypatch.setattr(repacker, "_run_avbtool_info_image", fake_info)
+    repacker._sync_partition_info_from_stock_avb(profile)
+
+    content = (device_dir / "partition_info.json").read_text(encoding="utf-8")
+    assert '"boot": 100663296' in content
+    assert '"pvmfw": 1048576' in content
+    assert '"avb_hash_partitions": [' in content
+    assert '"avb_strict_partitions": [' in content
 
 
 def test_generate_meta_info_includes_avb_lines(monkeypatch, tmp_path: Path) -> None:

@@ -1,5 +1,6 @@
 import concurrent.futures
 import hashlib
+import json
 import logging
 import os
 import re
@@ -42,6 +43,8 @@ def _append_unique(items: List[str], value: str) -> None:
 def parse_avbtool_info_output(output: str) -> Dict[str, Any]:
     """Parse `avbtool info_image` output into a structured dictionary."""
     result: Dict[str, Any] = {
+        "image_size": None,
+        "original_image_size": None,
         "algorithm": None,
         "rollback_index": None,
         "flags": None,
@@ -55,6 +58,8 @@ def parse_avbtool_info_output(output: str) -> Dict[str, Any]:
     rollback_re = re.compile(r"^Rollback Index:\s+(\d+)$")
     flags_re = re.compile(r"^Flags:\s+(\d+)$")
     alg_re = re.compile(r"^Algorithm:\s+(.+)$")
+    image_size_re = re.compile(r"^Image size:\s+(\d+)\s+bytes$")
+    original_image_size_re = re.compile(r"^Original image size:\s+(\d+)\s+bytes$")
     part_re = re.compile(r"^Partition Name:\s+(.+)$")
     chain_loc_re = re.compile(r"^Rollback Index Location:\s+(\d+)$")
 
@@ -66,6 +71,14 @@ def parse_avbtool_info_output(output: str) -> Dict[str, Any]:
         alg_match = alg_re.match(line)
         if alg_match:
             result["algorithm"] = alg_match.group(1).strip()
+            continue
+        image_size_match = image_size_re.match(line)
+        if image_size_match:
+            result["image_size"] = int(image_size_match.group(1))
+            continue
+        original_image_size_match = original_image_size_re.match(line)
+        if original_image_size_match:
+            result["original_image_size"] = int(original_image_size_match.group(1))
             continue
 
         rollback_match = rollback_re.match(line)
@@ -973,6 +986,8 @@ class Repacker:
         # Keep custom partition AVB footer behavior aligned with stock vbmeta.
         current_partitions = [img.stem for img in self.images_out.glob("*.img") if img.stem != "cust"]
         if getattr(self.ctx, "enable_custom_avb_chain", False):
+            profile = self._collect_stock_avb_profile()
+            self._sync_partition_info_from_stock_avb(profile)
             self._apply_avb_to_custom_images(current_partitions)
             self._rebuild_vbmeta_images(current_partitions)
 
@@ -1032,6 +1047,60 @@ class Repacker:
             "hashtree_parts": hashtree_parts,
             "chain_parts": cast(List[Tuple[str, int]], vbmeta_info.get("chain_partitions", [])),
         }
+
+    def _get_partition_info_path(self) -> Path:
+        return Path(f"devices/{self.ctx.stock_rom_code}/partition_info.json")
+
+    def _sync_partition_info_from_stock_avb(self, profile: Dict[str, Any]) -> None:
+        """Update devices/<code>/partition_info.json with AVB-related stock data."""
+        if not profile:
+            return
+
+        partition_info_path = self._get_partition_info_path()
+        partition_info_path.parent.mkdir(parents=True, exist_ok=True)
+        payload: Dict[str, Any] = {}
+        if partition_info_path.exists():
+            try:
+                payload = cast(
+                    Dict[str, Any], json.loads(partition_info_path.read_text(encoding="utf-8"))
+                )
+            except (json.JSONDecodeError, OSError):
+                payload = {}
+
+        payload.setdefault("device_code", self.ctx.stock_rom_code)
+        payload.setdefault("super_size", self._get_super_size())
+        dynamic_partitions = cast(List[str], payload.get("dynamic_partitions", self._get_partition_list()))
+        payload["dynamic_partitions"] = dynamic_partitions
+
+        hash_parts = set(cast(set[str], profile.get("hash_parts", set())))
+        hashtree_parts = set(cast(set[str], profile.get("hashtree_parts", set())))
+        chain_parts = cast(List[Tuple[str, int]], profile.get("chain_parts", []))
+        chain_part_names = {name for name, _loc in chain_parts if name in {"boot", "recovery"}}
+        strict_parts = sorted(((hash_parts | hashtree_parts) - set(dynamic_partitions)) | chain_part_names)
+
+        avbtool = self.ota_tools_dir / "bin" / "avbtool"
+        stock_images_dir = Path("build/stockrom/images")
+        physical_partition_sizes = cast(Dict[str, int], payload.get("physical_partition_sizes", {}))
+        for part in strict_parts:
+            image = stock_images_dir / f"{part}.img"
+            if not image.exists():
+                continue
+            info = self._run_avbtool_info_image(avbtool, image) or {}
+            image_size = cast(Optional[int], info.get("image_size"))
+            physical_partition_sizes[part] = int(image_size or image.stat().st_size)
+
+        payload["physical_partition_sizes"] = dict(sorted(physical_partition_sizes.items()))
+        payload["avb_hash_partitions"] = sorted(hash_parts)
+        payload["avb_hashtree_partitions"] = sorted(hashtree_parts)
+        payload["avb_chain_partitions"] = [
+            {"name": name, "rollback_index_location": loc} for name, loc in chain_parts
+        ]
+        payload["avb_strict_partitions"] = strict_parts
+
+        partition_info_path.write_text(
+            json.dumps(payload, indent=4, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        self.logger.info("Updated %s with stock AVB partition data.", partition_info_path)
 
     def _calc_avb_max_image_size(self, avbtool: Path, footer_cmd: str, partition_size: int) -> int:
         output = subprocess.check_output(
