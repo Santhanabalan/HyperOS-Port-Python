@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -243,7 +244,7 @@ class PayloadDumperRunner:
 
         # Determine platform and architecture
         system = sys.platform
-        machine = platform.machine().lower()
+        machine = (os.environ.get("OVERRIDE_BIN_ARCH") or platform.machine()).lower()
 
         # Map to project bin directory structure
         if system.startswith("linux"):

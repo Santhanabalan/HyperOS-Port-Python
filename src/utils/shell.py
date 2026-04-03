@@ -18,7 +18,7 @@ class ShellRunner:
         else:
             self.os_name = "windows" 
 
-        machine = platform.machine().lower()
+        machine = (os.environ.get("OVERRIDE_BIN_ARCH") or platform.machine()).lower()
         if machine in ["x86_64", "amd64"]:
             self.arch = "x86_64"
         elif machine in ["aarch64", "arm64"]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import platform
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,7 @@ def resolve_tooling(project_root: Path, logger: logging.Logger) -> ResolvedTooli
     """Resolve platform-specific binaries and shared tool locations."""
     bin_root = project_root / "bin"
     system = platform.system().lower()
-    machine = platform.machine().lower()
+    machine = (os.environ.get("OVERRIDE_BIN_ARCH") or platform.machine()).lower()
 
     if machine in ["amd64", "x86_64"]:
         arch = "x86_64"

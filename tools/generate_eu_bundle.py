@@ -4,6 +4,7 @@ import logging
 import shutil
 import sys
 import zipfile
+import os
 from pathlib import Path
 
 # Add project root to sys.path to allow imports
@@ -23,7 +24,7 @@ def get_aapt2_path(project_root: Path) -> Path:
     """Auto-detect system environment and return aapt2 path."""
     import platform
     system = platform.system().lower()
-    machine = platform.machine().lower()
+    machine = (os.environ.get("OVERRIDE_BIN_ARCH") or platform.machine()).lower()
     
     if machine in ["amd64", "x86_64"]: arch = "x86_64"
     elif machine in ["aarch64", "arm64"]: arch = "arm64"
