@@ -1,0 +1,13 @@
+{
+  "replacements": [
+    {
+      "id": "vili_nfc_app",
+      "description": "Vili NFC App (NQNfcNci)",
+      "type": "file",
+      "search_path": "system_ext/app",
+      "match_mode": "exact",
+      "ensure_exists": true,
+      "files": ["NQNfciNci"]
+    }
+  ]
+}

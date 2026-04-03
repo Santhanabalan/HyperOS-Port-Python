@@ -381,7 +381,7 @@ class PropertyModifier(ModifierPlugin):
                 break
 
         if not base_density:
-            base_density = "440"
+            base_density = "392"
             self.logger.warning(f"Base density not found, defaulting to {base_density}")
         else:
             self.logger.info(f"Found Base density: {base_density}")
@@ -610,6 +610,8 @@ class PropertyModifier(ModifierPlugin):
                         return "sm8450"
                     if "sm8250" in content:
                         return "sm8250"
+                    if "sm8350" in content: 
+                        return "sm8350"
                 except (IOError, OSError):
                     pass  # Ignore file access errors when detecting platform
             return "unknown"
