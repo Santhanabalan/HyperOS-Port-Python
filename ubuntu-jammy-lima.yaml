@@ -66,6 +66,21 @@ provision:
       # --- Install Python 3 and pip3 ---
       apt-get install -y python3 python3-pip python3-venv
 
+  - mode: user
+    script: |
+      set -eux
+
+      # --- Set Env Vars ---
+      echo 'export OVERRIDE_BIN_ARCH="amd64"' >> ~/.bashrc
+      echo 'export BUILD_USER="Exodus"' >> ~/.bashrc
+      echo 'export BUILD_HOST="Darwin"' >> ~/.bashrc
+
+      # --- Copy repo from mounted volume ---
+      cp -r /Volumes/Kernel/HyperOS-Port-Python ~/
+
+      # --- Install Python dependencies ---
+      cd ~/HyperOS-Port-Python
+      pip3 install -r requirements.txt
 
 # images:
 #   - location: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"
